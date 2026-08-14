@@ -55,8 +55,7 @@ export default function ReconTable({ recon, branchName }: {
               {b.payoutMatches === false && <span className="pct" style={{ color: 'var(--danger)' }}>✗ ต่าง {fmt(Math.abs(b.bankPayoutCalc - (b.payoutSheetAmount ?? 0)))}</span>}
             </td>
           ))}</tr>
-          <tr><td className="muted">ในยอดธนาคาร: เงิน TCT ที่ย้ายมา (อื่นๆ)</td>{cols.map((b, i) => <td key={i} className="muted">{b.walletShift !== 0 ? fmt(b.walletShift) : '—'}</td>)}</tr>
-          <tr><td>เข้าถุงเงิน (TCT หลังหักส่วนที่ย้าย)</td>{cols.map((b, i) => <td key={i}>{fmt(b.walletReceive)}</td>)}</tr>
+          <tr><td>เข้าถุงเงิน (TCT)</td>{cols.map((b, i) => <td key={i}>{fmt(b.walletReceive)}</td>)}</tr>
           <tr className="total"><td>รวมเงินที่จะได้รับ</td>{cols.map((b, i) => <td key={i}>{fmt(b.netReceiving)}</td>)}</tr>
           <tr><td className="muted">จำนวนออเดอร์ (ธนาคาร / ถุงเงิน)</td>{cols.map((b, i) => <td key={i} className="muted">{b.bankOrders} / {b.walletOrders}</td>)}</tr>
         </tbody>
@@ -65,12 +64,6 @@ export default function ReconTable({ recon, branchName }: {
         <p className="muted" style={{ marginTop: 8 }}>
           ✗ = ผลรวมแถวในช่วงนี้ไม่เท่ายอดโอนจริงของ Grab — รอบโอนหนึ่งอาจรวมรายการจากวันอื่น
           (อัปโหลดไฟล์วันก่อน/หลังเพิ่มเพื่อให้ครบรอบโอน) ยอดที่เข้าธนาคารจริงคือตัวเลขหลัง ✗
-        </p>
-      )}
-      {cols.some(b => b.walletShift !== 0) && (
-        <p className="muted" style={{ marginTop: 4 }}>
-          การปรับรายได้ "อื่นๆ" ที่อ้างถึงออเดอร์ TCT = เงินของออเดอร์นั้นที่ Grab จ่ายผ่านรอบโอนธนาคาร
-          แทนถุงเงิน — ระบบย้ายยอดนี้ออกจากถุงเงินให้แล้ว (ไม่ใช่รายได้เพิ่มและไม่ใช่ต้นทุน)
         </p>
       )}
     </div>
