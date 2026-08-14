@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import * as XLSX from 'xlsx'
-import { sb } from '../lib/supabase'
+import { sb, fetchAll, bkkToday } from '../lib/supabase'
 import { parseGrabWorkbook, type GrabParse, type GrabRow, type GrabPayout, type GrabCategory } from '../lib/grabParser'
 import { reconByBranch, isBankSale, type BranchRecon } from '../lib/grabCalc'
 import { saveGrabUploads, type UploadItem } from '../lib/grabIngest'
@@ -51,10 +51,6 @@ function dbToGrabRow(r: DbRow): GrabRow {
   }
 }
 
-const daysAgo = (n: number) => {
-  const d = new Date(Date.now() - n * 86400_000)
-  return d.toISOString().slice(0, 10)
-}
 const fmt = (n: number) => n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
 /** Render a stored timestamp in Bangkok time, Gregorian calendar: "12/08/2026 04:44" */
@@ -68,8 +64,8 @@ function formatBkk(iso: string): string {
 
 export default function GrabDashboard() {
   const branches = useBranches()
-  const [from, setFrom] = useState(daysAgo(7))
-  const [to, setTo] = useState(daysAgo(0))
+  const [from, setFrom] = useState(bkkToday(7))
+  const [to, setTo] = useState(bkkToday(0))
   const [recon, setRecon] = useState<BranchRecon[]>([])
   const [payouts, setPayouts] = useState<DbRow[]>([])
   const [owe, setOwe] = useState<OweGrid>(new Map())
@@ -88,37 +84,42 @@ export default function GrabDashboard() {
   async function load() {
     setBusy(true); setError('')
     try {
-      const { data: rows, error: re } = await sb.from('grab_rows')
-        .select('*').gte('business_date', from).lte('business_date', to).limit(20000)
-      if (re) throw re
-      const { data: pos, error: pe } = await sb.from('grab_payouts')
-        .select('*').gte('transferred_at', from + 'T00:00:00Z').lte('transferred_at', to + 'T23:59:59Z')
-      if (pe) throw pe
+      const [rows, pos] = await Promise.all([
+        fetchAll<DbRow>((f, t) => sb.from('grab_rows')
+          .select('*').gte('business_date', from).lte('business_date', to)
+          .order('id').range(f, t)),
+        fetchAll<DbRow>((f, t) => sb.from('grab_payouts')
+          .select('*')
+          .gte('transferred_at', from + 'T00:00:00+07:00')
+          .lte('transferred_at', to + 'T23:59:59+07:00')
+          .order('id').range(f, t)),
+      ])
 
-      const grabRows = ((rows as DbRow[]) ?? []).map(dbToGrabRow)
+      const grabRows = rows.map(dbToGrabRow)
       // payout totals must cover the payouts that PAY these rows (payout ids referenced by rows)
       const payoutIds = new Set(grabRows.map(r => r.payoutId).filter(Boolean))
-      const { data: pos2, error: p2e } = payoutIds.size
-        ? await sb.from('grab_payouts').select('*').in('payout_id', [...payoutIds])
-        : { data: [], error: null }
-      if (p2e) throw p2e
       // cross-date payout check: a payout batch can include rows from other days,
       // so verify each payout against ALL its rows in the DB, not just this date range
-      const { data: allPayoutRows, error: are } = payoutIds.size
-        ? await sb.from('grab_rows').select('payout_id,total,business_date').in('payout_id', [...payoutIds])
-        : { data: [], error: null }
-      if (are) throw are
+      const [pos2, allPayoutRows] = payoutIds.size
+        ? await Promise.all([
+            fetchAll<DbRow>((f, t) => sb.from('grab_payouts')
+              .select('*').in('payout_id', [...payoutIds]).order('id').range(f, t)),
+            fetchAll<DbRow>((f, t) => sb.from('grab_rows')
+              .select('payout_id,total,business_date').in('payout_id', [...payoutIds])
+              .order('id').range(f, t)),
+          ])
+        : [[], []]
       const payoutRowSum = new Map<string, number>()
-      for (const r of (allPayoutRows as DbRow[]) ?? []) {
+      for (const r of allPayoutRows) {
         const pid = r.payout_id as string
         payoutRowSum.set(pid, (payoutRowSum.get(pid) ?? 0) + Number(r.total ?? 0))
       }
       const payoutAmount = new Map<string, number>()
-      for (const p of (pos2 as DbRow[]) ?? []) payoutAmount.set(p.payout_id as string, Number(p.amount ?? 0))
+      for (const p of pos2) payoutAmount.set(p.payout_id as string, Number(p.amount ?? 0))
 
       const parse: GrabParse = {
         rows: grabRows,
-        payouts: ((pos2 as DbRow[]) ?? []).map((p): GrabPayout => ({
+        payouts: pos2.map((p): GrabPayout => ({
           payoutId: (p.payout_id as string) ?? '',
           storeName: '',
           grabStoreId: (p.grab_store_id as string) ?? '',
@@ -128,7 +129,7 @@ export default function GrabDashboard() {
           bankName: (p.bank_name as string) ?? '',
           bankLast4: (p.bank_last4 as string) ?? '',
         })),
-        periodStart: from, periodEnd: to, warnings: [],
+        periodStart: from, periodEnd: to, declaredStart: from, declaredEnd: to, warnings: [],
       }
       setCount(grabRows.length)
       const recons = grabRows.length ? reconByBranch(parse) : []
@@ -152,12 +153,12 @@ export default function GrabDashboard() {
         b.payoutMatches = ok
       }
       setRecon(recons)
-      setPayouts((pos as DbRow[]) ?? [])
+      setPayouts(pos)
 
       // ---- Grab-Owe grid: earned (from rows) vs paid (payout sheet), per date × branch ----
       // attribute each payout to the business_date most common among its rows
       const payoutDateVotes = new Map<string, Map<string, number>>()
-      for (const r of (allPayoutRows as DbRow[]) ?? []) {
+      for (const r of allPayoutRows) {
         const pid = r.payout_id as string
         const d = (r.business_date as string) ?? ''
         if (!d) continue
@@ -182,7 +183,7 @@ export default function GrabDashboard() {
         const bankAmt = r.category === 'ชำระเงิน' ? (isBankSale(r) ? r.total : 0) : r.total
         if (bankAmt !== 0) cell(r.businessDate, store).earned += bankAmt
       }
-      for (const p of (pos2 as DbRow[]) ?? []) {
+      for (const p of pos2) {
         const pid = p.payout_id as string
         const d = payoutDate.get(pid)
         if (!d || d < from || d > to) continue
@@ -221,7 +222,7 @@ export default function GrabDashboard() {
     try {
       const codeByStore = new Map(branches.filter(b => b.grab_store_id).map(b => [b.grab_store_id!, b.code]))
       const res = await saveGrabUploads(pending, codeByStore)
-      setUploadMsg(`บันทึกแล้ว ${pending.length} ไฟล์ (${res.rows} รายการ, ${res.payouts} ยอดโอน) — ข้อมูลวันเดิมถูกแทนที่`)
+      setUploadMsg(`บันทึกแล้ว ${pending.length} ไฟล์ (${res.rows} รายการ, ${res.payouts} ยอดโอน)` + (res.duplicatesDropped ? ` — ข้ามรายการซ้ำ ${res.duplicatesDropped}` : '') + ' — ข้อมูลช่วงวันที่เดิมถูกแทนที่แบบ all-or-nothing')
       setPending([])
       await load()
     } catch (err) {

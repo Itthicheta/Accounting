@@ -53,13 +53,36 @@ export type GrabPayout = {
 export type GrabParse = {
   rows: GrabRow[]
   payouts: GrabPayout[]
+  /** min/max business date actually seen in the rows */
   periodStart: string
   periodEnd: string
+  /** the report period DECLARED in the สรุป sheet (ช่วงวันที่) — authoritative
+   *  bound for replace-on-upload; falls back to row dates when missing */
+  declaredStart: string
+  declaredEnd: string
   warnings: string[]
 }
 
 const TXN_SHEET = 'รายการชำระเงิน'
 const PAYOUT_SHEET = 'การจ่ายรายได้'
+const SUMMARY_SHEET = 'สรุป'
+
+/** "10/08/2026 - 11/08/2026" (สรุป ช่วงวันที่) -> [ '2026-08-10', '2026-08-11' ] */
+function parseDeclaredPeriod(wb: XLSX.WorkBook): [string, string] | null {
+  const ws = wb.Sheets[SUMMARY_SHEET]
+  if (!ws) return null
+  const aoa: unknown[][] = XLSX.utils.sheet_to_json(ws, { header: 1, raw: false })
+  for (const row of aoa.slice(0, 12)) {
+    if (!row) continue
+    const i = row.findIndex(c => String(c ?? '').trim() === 'ช่วงวันที่')
+    if (i < 0) continue
+    const m = String(row[i + 1] ?? '').match(/(\d{1,2})\/(\d{1,2})\/(\d{4})\s*-\s*(\d{1,2})\/(\d{1,2})\/(\d{4})/)
+    if (!m) return null
+    const iso = (d: string, mo: string, y: string) => `${y}-${mo.padStart(2, '0')}-${d.padStart(2, '0')}`
+    return [iso(m[1], m[2], m[3]), iso(m[4], m[5], m[6])]
+  }
+  return null
+}
 
 // Column headers as they appear in the GrabMerchant export (documented in handoff §6c)
 const H = {
@@ -163,7 +186,7 @@ export function parseGrabWorkbook(wb: XLSX.WorkBook): GrabParse {
   const txnWs = wb.Sheets[TXN_SHEET]
   if (!txnWs) {
     warnings.push(`ไม่พบชีต "${TXN_SHEET}" ในไฟล์`)
-    return { rows, payouts, periodStart: '', periodEnd: '', warnings }
+    return { rows, payouts, periodStart: '', periodEnd: '', declaredStart: '', declaredEnd: '', warnings }
   }
   const aoa: unknown[][] = XLSX.utils.sheet_to_json(txnWs, { header: 1, raw: true })
   const hdr = (aoa[0] ?? []).map(str)
@@ -176,7 +199,7 @@ export function parseGrabWorkbook(wb: XLSX.WorkBook): GrabParse {
   for (const n of need) {
     if (!(n in col)) warnings.push(`ไม่พบคอลัมน์ "${n}"`)
   }
-  if (warnings.length) return { rows, payouts, periodStart: '', periodEnd: '', warnings }
+  if (warnings.length) return { rows, payouts, periodStart: '', periodEnd: '', declaredStart: '', declaredEnd: '', warnings }
 
   const g = (r: unknown[], name: string): unknown => r[col[name]]
 
@@ -262,11 +285,29 @@ export function parseGrabWorkbook(wb: XLSX.WorkBook): GrabParse {
   }
 
   const dates = rows.map(r => r.businessDate).filter(Boolean).sort()
+  const periodStart = dates[0] ?? ''
+  const periodEnd = dates[dates.length - 1] ?? ''
+
+  const declared = parseDeclaredPeriod(wb)
+  let declaredStart = periodStart
+  let declaredEnd = periodEnd
+  if (declared) {
+    ;[declaredStart, declaredEnd] = declared
+  } else {
+    warnings.push(`ไม่พบช่วงวันที่ในชีต "${SUMMARY_SHEET}" — ใช้ช่วงวันที่จากรายการแทน (${periodStart} ถึง ${periodEnd})`)
+  }
+  const outside = rows.filter(r => r.businessDate && (r.businessDate < declaredStart || r.businessDate > declaredEnd))
+  if (outside.length) {
+    warnings.push(`มี ${outside.length} รายการลงวันที่นอกช่วงรายงาน (${declaredStart} ถึง ${declaredEnd}) — จะบันทึกเพิ่มโดยไม่ลบข้อมูลของวันเหล่านั้น`)
+  }
+
   return {
     rows,
     payouts,
-    periodStart: dates[0] ?? '',
-    periodEnd: dates[dates.length - 1] ?? '',
+    periodStart,
+    periodEnd,
+    declaredStart,
+    declaredEnd,
     warnings,
   }
 }

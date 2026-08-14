@@ -72,7 +72,12 @@ function makeWb(): XLSX.WorkBook {
     ['12/08/2026 02:48', 'Shop - Branch A', 'store-a', 'PAYOUT1', 23.44, '', '12/08/2026 04:44', 'REF1', 'Kasikornthai', '1234'],
   ]
 
+  const summaryAoa = [
+    [], [], [], ['', 'รายงาน GrabMerchant'],
+    ['', 'ช่วงวันที่', '11/08/2026 - 11/08/2026'],
+  ]
   const wb = XLSX.utils.book_new()
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(summaryAoa), 'สรุป')
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(txnAoa), 'รายการชำระเงิน')
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(payoutAoa), 'การจ่ายรายได้')
   return wb
@@ -94,6 +99,8 @@ describe('parseGrabWorkbook', () => {
     expect(p.rows).toHaveLength(4)
     expect(p.periodStart).toBe('2026-08-11')
     expect(p.periodEnd).toBe('2026-08-11')
+    expect(p.declaredStart).toBe('2026-08-11')
+    expect(p.declaredEnd).toBe('2026-08-11')
 
     const reg = p.rows.find(r => r.txnId === 'txn-reg-1')!
     expect(reg.category).toBe('ชำระเงิน')

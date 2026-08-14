@@ -15,7 +15,7 @@ function row(over: Partial<GrabRow>): GrabRow {
 }
 
 function parse(rows: GrabRow[], payouts: GrabParse['payouts'] = []): GrabParse {
-  return { rows, payouts, periodStart: '2026-08-11', periodEnd: '2026-08-11', warnings: [] }
+  return { rows, payouts, periodStart: '2026-08-11', periodEnd: '2026-08-11', declaredStart: '2026-08-11', declaredEnd: '2026-08-11', warnings: [] }
 }
 
 describe('reconByBranch', () => {

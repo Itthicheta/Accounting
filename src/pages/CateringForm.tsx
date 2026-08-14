@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { sb } from '../lib/supabase'
+import { sb, bkkToday } from '../lib/supabase'
 import {
   gross, bowlsSold, eventNet, cateringNet, staffTotal, netProfit,
   type Menu, type StaffCost,
@@ -16,7 +16,7 @@ export default function CateringForm() {
   const nav = useNavigate()
   const branches = useBranches()
 
-  const [eventDate, setEventDate] = useState(new Date().toISOString().slice(0, 10))
+  const [eventDate, setEventDate] = useState(bkkToday())
   const [name, setName] = useState('')
   const [branchCode, setBranchCode] = useState('')
   const [mode, setMode] = useState<'catering' | 'event'>('catering')

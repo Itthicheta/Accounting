@@ -40,46 +40,32 @@ export function rowToDb(r: GrabRow, fileId: number, branchCode: string | null) {
 export type UploadItem = { filename: string; parse: GrabParse }
 
 /**
- * Save parsed Grab files. Same-date data is REPLACED: existing rows within each
- * file's business-date range are deleted first (the file is company-wide, so the
- * range covers all branches). Payouts are upserted by payout_id (new file wins).
- * Files are processed in order — when ranges overlap, the later file wins.
+ * Save parsed Grab files atomically via the acc.replace_grab_file RPC.
+ * Per file, in ONE transaction server-side: rows within the file's DECLARED
+ * report period are replaced; rows dated outside it are upserted without
+ * deleting those days; payouts are upserted and orphaned payouts removed.
+ * A failure anywhere rolls the whole file back — nothing is lost.
+ * Files are processed in order — when periods overlap, the later file wins.
  */
 export async function saveGrabUploads(
   items: UploadItem[],
   branchCodeByStoreId: Map<string, string>,
-): Promise<{ rows: number; payouts: number }> {
+): Promise<{ rows: number; payouts: number; duplicatesDropped: number }> {
   let rows = 0
   let payouts = 0
+  let duplicatesDropped = 0
   for (const { filename, parse } of items) {
-    const { data: fileRow, error: fe } = await sb.from('grab_files')
-      .insert({
-        filename,
-        period_start: parse.periodStart || null,
-        period_end: parse.periodEnd || null,
-        row_count: parse.rows.length,
-      })
-      .select('id').single()
-    if (fe) throw fe
-    const fileId = (fileRow as { id: number }).id
-
-    if (parse.periodStart && parse.periodEnd) {
-      const { error: de } = await sb.from('grab_rows').delete()
-        .gte('business_date', parse.periodStart)
-        .lte('business_date', parse.periodEnd)
-      if (de) throw de
+    // intra-file dedupe: identical dedupe keys would abort the insert (error 21000);
+    // keep the last occurrence and count what was dropped
+    const byKey = new Map<string, ReturnType<typeof rowToDb>>()
+    for (const r of parse.rows) {
+      const db = rowToDb(r, 0, branchCodeByStoreId.get(r.grabStoreId) ?? null)
+      byKey.set(db.dedupe_key, db)
     }
-
-    const dbRows = parse.rows.map(r => rowToDb(r, fileId, branchCodeByStoreId.get(r.grabStoreId) ?? null))
-    if (dbRows.length) {
-      const { error: re } = await sb.from('grab_rows')
-        .upsert(dbRows, { onConflict: 'dedupe_key' })
-      if (re) throw re
-      rows += dbRows.length
-    }
+    duplicatesDropped += parse.rows.length - byKey.size
+    const dbRows = [...byKey.values()].map(({ file_id: _omit, ...rest }) => rest)
 
     const dbPayouts = parse.payouts.map(po => ({
-      file_id: fileId,
       payout_id: po.payoutId,
       branch_code: branchCodeByStoreId.get(po.grabStoreId) ?? null,
       grab_store_id: po.grabStoreId,
@@ -89,12 +75,18 @@ export async function saveGrabUploads(
       bank_name: po.bankName || null,
       bank_last4: po.bankLast4 || null,
     }))
-    if (dbPayouts.length) {
-      const { error: pe } = await sb.from('grab_payouts')
-        .upsert(dbPayouts, { onConflict: 'payout_id' })
-      if (pe) throw pe
-      payouts += dbPayouts.length
-    }
+
+    const { data, error } = await sb.rpc('replace_grab_file', {
+      p_filename: filename,
+      p_period_start: parse.declaredStart || parse.periodStart || null,
+      p_period_end: parse.declaredEnd || parse.periodEnd || null,
+      p_rows: dbRows,
+      p_payouts: dbPayouts,
+    })
+    if (error) throw error
+    const res = data as { inserted: number; payouts: number }
+    rows += res.inserted ?? dbRows.length
+    payouts += res.payouts ?? dbPayouts.length
   }
-  return { rows, payouts }
+  return { rows, payouts, duplicatesDropped }
 }
