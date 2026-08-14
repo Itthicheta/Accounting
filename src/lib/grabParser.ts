@@ -141,6 +141,20 @@ function str(v: unknown): string {
   return v == null ? '' : String(v).trim()
 }
 
+/**
+ * Stable identity for a row across re-uploads of overlapping exports.
+ * TCT sale rows have no Transaction ID — fall back through related txn id,
+ * long order id, then store+code+time+amount (GF codes recycle across days/branches).
+ */
+export function dedupeKey(r: GrabRow): string {
+  return r.category + '|' + (
+    r.txnId ||
+    r.relatedTxnId ||
+    r.longOrderId ||
+    `${r.grabStoreId}@${r.orderCode}@${r.grabCreatedAt ?? ''}@${r.amount}`
+  )
+}
+
 export function parseGrabWorkbook(wb: XLSX.WorkBook): GrabParse {
   const warnings: string[] = []
   const rows: GrabRow[] = []
