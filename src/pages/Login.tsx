@@ -11,7 +11,9 @@ export default function Login() {
     e.preventDefault()
     setBusy(true)
     setErr('')
-    const { error } = await sb.auth.signInWithPassword({ email, password })
+    // staff type a plain id (e.g. "account"); map to the internal email form
+    const fullEmail = email.includes('@') ? email : `${email.trim()}@mamapook.test`
+    const { error } = await sb.auth.signInWithPassword({ email: fullEmail, password })
     if (error) setErr('เข้าสู่ระบบไม่สำเร็จ: ' + error.message)
     setBusy(false)
   }
@@ -21,8 +23,8 @@ export default function Login() {
       <form className="card login-card" onSubmit={submit}>
         <h1>Mamapook Accounting</h1>
         <p className="muted">เข้าสู่ระบบด้วยบัญชีพนักงาน</p>
-        <label>อีเมล</label>
-        <input type="email" value={email} onChange={e => setEmail(e.target.value)} required />
+        <label>ไอดี</label>
+        <input type="text" value={email} onChange={e => setEmail(e.target.value)} autoCapitalize="none" required />
         <label>รหัสผ่าน</label>
         <input type="password" value={password} onChange={e => setPassword(e.target.value)} required />
         {err && <div className="banner bad">{err}</div>}

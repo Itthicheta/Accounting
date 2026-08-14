@@ -52,6 +52,15 @@ const daysAgo = (n: number) => {
 }
 const fmt = (n: number) => n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
+/** Render a stored timestamp in Bangkok time, Gregorian calendar: "12/08/2026 04:44" */
+function formatBkk(iso: string): string {
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Asia/Bangkok', day: '2-digit', month: '2-digit', year: 'numeric',
+    hour: '2-digit', minute: '2-digit', hour12: false,
+  }).formatToParts(new Date(iso)).reduce<Record<string, string>>((a, p) => (a[p.type] = p.value, a), {})
+  return `${parts.day}/${parts.month}/${parts.year} ${parts.hour}:${parts.minute}`
+}
+
 export default function GrabDashboard() {
   const branches = useBranches()
   const [from, setFrom] = useState(daysAgo(7))
@@ -139,7 +148,7 @@ export default function GrabDashboard() {
                     <td>{branchName((p.grab_store_id as string) ?? '')}</td>
                     <td style={{ textAlign: 'left' }}>{p.payout_id as string}</td>
                     <td>{fmt(Number(p.amount ?? 0))}</td>
-                    <td>{p.transferred_at ? new Date(p.transferred_at as string).toLocaleString('th-TH', { timeZone: 'Asia/Bangkok', dateStyle: 'short', timeStyle: 'short' }) : ''}</td>
+                    <td>{p.transferred_at ? formatBkk(p.transferred_at as string) : ''}</td>
                     <td>{p.bank_last4 as string}</td>
                   </tr>
                 ))}
