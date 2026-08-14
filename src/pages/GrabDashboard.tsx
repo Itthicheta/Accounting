@@ -41,7 +41,7 @@ export default function GrabDashboard() {
   const [calRefresh, setCalRefresh] = useState(0)
   const [oweSummary, setOweSummary] = useState<DbRow[]>([])
   const [cancelled, setCancelled] = useState<GrabRow[]>([])
-  const [billRecon, setBillRecon] = useState<{ branch: string; pos: number; grab: number; hasPos: boolean }[]>([])
+  const [billRecon, setBillRecon] = useState<{ branch: string; pos: number; grab: number; days: number }[]>([])
   const [count, setCount] = useState(0)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
@@ -149,13 +149,21 @@ export default function GrabDashboard() {
           grabBillsByBranch.set(code, (grabBillsByBranch.get(code) ?? 0) + 1)
         }
       }
-      const posCovered = new Set([...bothDays].map(k => k.split('|')[0]))
-      const codes = [...new Set([...posAgg.grabPosBills.keys(), ...grabBillsByBranch.keys()])].sort()
+      const daysByBranch = new Map<string, number>()
+      for (const k of bothDays) {
+        const c = k.split('|')[0]
+        daysByBranch.set(c, (daysByBranch.get(c) ?? 0) + 1)
+      }
+      // every branch that has grab activity in the range appears, even with 0 comparable days
+      const codes = [...new Set([
+        ...posAgg.grabPosBills.keys(), ...grabBillsByBranch.keys(),
+        ...grabRows.filter(r => r.category === 'ชำระเงิน').map(r => byStoreId.get(r.grabStoreId)?.code ?? '').filter(Boolean),
+      ])].sort()
       setBillRecon(codes.map(c => ({
         branch: c,
         pos: posAgg.grabPosBills.get(c) ?? 0,
         grab: grabBillsByBranch.get(c) ?? 0,
-        hasPos: posCovered.has(c),
+        days: daysByBranch.get(c) ?? 0,
       })))
 
       const { data: oweSum, error: oe } = await sb.from('grab_owe_summary').select('*')
@@ -295,22 +303,24 @@ export default function GrabDashboard() {
 
       {billRecon.length > 0 && (
         <div className="card">
-          <h2>กระทบยอดจำนวนบิล Grab (POS vs รายงาน Grab)</h2>
+          <h2>กระทบยอดจำนวนบิล Grab (POS vs รายงาน Grab) — {from} → {to}</h2>
+          <p className="muted">นับเฉพาะวันที่มีข้อมูลครบทั้งสองฝั่ง (POS sync แล้ว + อัปโหลดไฟล์ Grab แล้ว)</p>
           <div className="scroll-x">
             <table className="data">
-              <thead><tr><th>สาขา</th><th>บิลใน POS</th><th>บิลในรายงาน Grab</th><th>ผล</th></tr></thead>
+              <thead><tr><th>สาขา</th><th>วันที่เทียบได้</th><th>บิลใน POS</th><th>บิลในรายงาน Grab</th><th>ผล</th></tr></thead>
               <tbody>
                 {billRecon.map((r, i) => (
                   <tr key={i}>
                     <td style={{ textAlign: 'left' }}>{branchNameByCode(r.branch)}</td>
-                    <td>{r.pos}</td>
-                    <td>{r.grab}</td>
+                    <td>{r.days || '—'}</td>
+                    <td>{r.days ? r.pos : '—'}</td>
+                    <td>{r.days ? r.grab : '—'}</td>
                     <td style={{ textAlign: 'left' }}>
-                      {!r.hasPos
-                        ? <span className="chip warn">ยังไม่มีข้อมูล POS สาขานี้ (sync ยังไม่ครอบคลุม)</span>
+                      {r.days === 0
+                        ? <span className="chip warn">ไม่มีวันที่ข้อมูลครบทั้งสองฝั่งในช่วงนี้</span>
                         : r.pos === r.grab
                           ? <span className="chip ok">✓ ตรงกัน</span>
-                          : <span className="chip bad">✗ ต่าง {Math.abs(r.pos - r.grab)} บิล{r.grab === 0 ? ' (ยังไม่อัปโหลดไฟล์ Grab?)' : r.pos > r.grab ? ' — POS เกิน อาจคีย์ซ้ำ' : ' — POS ขาด อาจลืมคีย์'}</span>}
+                          : <span className="chip bad">✗ ต่าง {Math.abs(r.pos - r.grab)} บิล{r.pos > r.grab ? ' — POS เกิน อาจคีย์ซ้ำ' : ' — POS ขาด อาจลืมคีย์'}</span>}
                     </td>
                   </tr>
                 ))}
