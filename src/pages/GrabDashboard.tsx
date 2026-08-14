@@ -6,6 +6,7 @@ import { reconByBranch, isBankSale, type BranchRecon } from '../lib/grabCalc'
 import { saveGrabUploads, type UploadItem } from '../lib/grabIngest'
 import { useBranches } from './Shell'
 import ReconTable from './ReconTable'
+import MonthCalendar from './MonthCalendar'
 
 /** date -> storeId -> {earned, paid}; owe cell = paid − earned (Grab owes us => negative) */
 type OweGrid = Map<string, Map<string, { earned: number; paid: number }>>
@@ -74,6 +75,7 @@ export default function GrabDashboard() {
   const [uploadErr, setUploadErr] = useState('')
   const [savingUpload, setSavingUpload] = useState(false)
   const fileInput = useRef<HTMLInputElement>(null)
+  const [calRefresh, setCalRefresh] = useState(0)
   const [count, setCount] = useState(0)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
@@ -81,17 +83,19 @@ export default function GrabDashboard() {
   const byStoreId = new Map(branches.filter(b => b.grab_store_id).map(b => [b.grab_store_id!, b]))
   const branchName = (key: string) => byStoreId.get(key)?.name_en ?? key
 
-  async function load() {
+  async function load(fromArg?: string, toArg?: string) {
+    const f0 = fromArg ?? from
+    const t0 = toArg ?? to
     setBusy(true); setError('')
     try {
       const [rows, pos] = await Promise.all([
         fetchAll<DbRow>((f, t) => sb.from('grab_rows')
-          .select('*').gte('business_date', from).lte('business_date', to)
+          .select('*').gte('business_date', f0).lte('business_date', t0)
           .order('id').range(f, t)),
         fetchAll<DbRow>((f, t) => sb.from('grab_payouts')
           .select('*')
-          .gte('transferred_at', from + 'T00:00:00+07:00')
-          .lte('transferred_at', to + 'T23:59:59+07:00')
+          .gte('transferred_at', f0 + 'T00:00:00+07:00')
+          .lte('transferred_at', t0 + 'T23:59:59+07:00')
           .order('id').range(f, t)),
       ])
 
@@ -129,7 +133,7 @@ export default function GrabDashboard() {
           bankName: (p.bank_name as string) ?? '',
           bankLast4: (p.bank_last4 as string) ?? '',
         })),
-        periodStart: from, periodEnd: to, declaredStart: from, declaredEnd: to, warnings: [],
+        periodStart: f0, periodEnd: t0, declaredStart: f0, declaredEnd: t0, warnings: [],
       }
       setCount(grabRows.length)
       const recons = grabRows.length ? reconByBranch(parse) : []
@@ -186,7 +190,7 @@ export default function GrabDashboard() {
       for (const p of pos2) {
         const pid = p.payout_id as string
         const d = payoutDate.get(pid)
-        if (!d || d < from || d > to) continue
+        if (!d || d < f0 || d > t0) continue
         cell(d, (p.grab_store_id as string) ?? '').paid += Number(p.amount ?? 0)
       }
       setOwe(grid)
@@ -224,6 +228,7 @@ export default function GrabDashboard() {
       const res = await saveGrabUploads(pending, codeByStore)
       setUploadMsg(`บันทึกแล้ว ${pending.length} ไฟล์ (${res.rows} รายการ, ${res.payouts} ยอดโอน)` + (res.duplicatesDropped ? ` — ข้ามรายการซ้ำ ${res.duplicatesDropped}` : '') + ' — ข้อมูลช่วงวันที่เดิมถูกแทนที่แบบ all-or-nothing')
       setPending([])
+      setCalRefresh(k => k + 1)
       await load()
     } catch (err) {
       setUploadErr('บันทึกไม่สำเร็จ: ' + (err as Error).message)
@@ -240,10 +245,11 @@ export default function GrabDashboard() {
           <button className="primary" onClick={() => fileInput.current?.click()}>อัปโหลดรายงาน Grab</button>
         </div>
       </div>
+      <MonthCalendar refreshKey={calRefresh} onPick={d => { setFrom(d); setTo(d); load(d, d) }} />
       <div className="card row">
         <div><label>ตั้งแต่วันที่ (วันขาย)</label><input type="date" value={from} onChange={e => setFrom(e.target.value)} /></div>
         <div><label>ถึงวันที่</label><input type="date" value={to} onChange={e => setTo(e.target.value)} /></div>
-        <button className="primary" onClick={load} disabled={busy}>{busy ? 'กำลังโหลด…' : 'แสดงผล'}</button>
+        <button className="primary" onClick={() => load()} disabled={busy}>{busy ? 'กำลังโหลด…' : 'แสดงผล'}</button>
         <span className="muted">{count} รายการ</span>
       </div>
       {error && <div className="banner bad">{error}</div>}
