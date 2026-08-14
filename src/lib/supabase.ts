@@ -42,4 +42,5 @@ export type Branch = {
   peak_customer: string | null
   peak_class: string | null
   tungngern_peak_sub: string | null
+  pos_location_id: string | null
 }

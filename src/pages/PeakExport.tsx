@@ -4,8 +4,8 @@ import { sb, fetchAll, bkkToday } from '../lib/supabase'
 import { reconByBranch, COMPANY } from '../lib/grabCalc'
 import { dbToGrabRow } from '../lib/grabIngest'
 import {
-  buildPeakReceiptLines, peakReceiptWorkbook,
-  type PeakSourceAmounts, type CateringLine, type PeakReceiptLine,
+  buildPeakReceiptLines, buildPosLines, peakReceiptWorkbook,
+  type PeakSourceAmounts, type CateringLine, type PeakReceiptLine, type PosViewRow,
 } from '../lib/peakExport'
 import { useBranches } from './Shell'
 
@@ -19,8 +19,10 @@ export default function PeakExport() {
   const [warnings, setWarnings] = useState<string[]>([])
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  const [billRecon, setBillRecon] = useState<{ branch: string; pos: number; grab: number }[]>([])
 
   const byStoreId = new Map(branches.filter(b => b.grab_store_id).map(b => [b.grab_store_id!, b.code]))
+  const byLocation = new Map(branches.filter(b => b.pos_location_id).map(b => [b.pos_location_id!, b.code]))
 
   async function load() {
     setBusy(true); setError('')
@@ -41,6 +43,25 @@ export default function PeakExport() {
           grabWallet: b.walletReceive,
         }))
 
+      // POS channels from mp_metrics view (dine_in + take_away per method)
+      const posRows = await fetchAll<PosViewRow>((f, t) => sb.from('pos_channel_payment')
+        .select('*').eq('business_date', day).order('location_id').range(f, t))
+      const pos = buildPosLines(posRows, byLocation)
+
+      // bill reconcile: POS grab-origin bills vs Grab report payment rows
+      const grabBillsByBranch = new Map<string, number>()
+      for (const r of grabRows) {
+        if (r.category !== 'ชำระเงิน') continue
+        const code = byStoreId.get(r.grabStoreId) ?? ''
+        if (code) grabBillsByBranch.set(code, (grabBillsByBranch.get(code) ?? 0) + 1)
+      }
+      const branchCodes = [...new Set([...pos.grabPosBills.keys(), ...grabBillsByBranch.keys()])].sort()
+      setBillRecon(branchCodes.map(c => ({
+        branch: c,
+        pos: pos.grabPosBills.get(c) ?? 0,
+        grab: grabBillsByBranch.get(c) ?? 0,
+      })))
+
       const { data: events, error: ee } = await sb.from('catering_events')
         .select('branch_code,name,net_receiving').eq('event_date', day)
         .in('status', ['reconcile_ready', 'performance_complete'])
@@ -51,9 +72,9 @@ export default function PeakExport() {
         netReceiving: Number(e.net_receiving ?? 0),
       }))
 
-      const built = buildPeakReceiptLines(day, branches, per, catering)
+      const built = buildPeakReceiptLines(day, branches, per, catering, pos.posLines)
       setLines(built.lines)
-      setWarnings(built.warnings)
+      setWarnings([...pos.warnings, ...built.warnings])
     } catch (err) {
       setError((err as Error).message)
     }
@@ -90,7 +111,7 @@ export default function PeakExport() {
           <h2>ตัวอย่างไฟล์ ({day})</h2>
           <table className="data">
             <thead>
-              <tr><th>ลำดับ</th><th>ลูกค้า</th><th>คำอธิบาย</th><th>จำนวนเงิน (รวม VAT)</th><th>รับชำระโดย</th><th>กลุ่ม</th></tr>
+              <tr><th>ลำดับ</th><th>ลูกค้า</th><th>คำอธิบาย</th><th>จำนวนเงิน (รวม VAT)</th><th>รับชำระโดย</th><th>หมายเหตุ</th><th>กลุ่ม</th></tr>
             </thead>
             <tbody>
               {lines.map(l => (
@@ -100,14 +121,40 @@ export default function PeakExport() {
                   <td style={{ textAlign: 'left' }}>{l.description}</td>
                   <td style={{ color: l.amount < 0 ? 'var(--danger)' : 'inherit' }}>{fmt(l.amount)}</td>
                   <td style={{ textAlign: 'left' }}>{l.paidBy}</td>
+                  <td style={{ textAlign: 'left' }}>{l.note}</td>
                   <td style={{ textAlign: 'left' }}>{l.classGroup}</td>
                 </tr>
               ))}
-              <tr className="total"><td colSpan={3} style={{ textAlign: 'left' }}>รวม</td><td>{fmt(total)}</td><td colSpan={2}></td></tr>
+              <tr className="total"><td colSpan={3} style={{ textAlign: 'left' }}>รวม</td><td>{fmt(total)}</td><td colSpan={3}></td></tr>
             </tbody>
           </table>
         </div>
       )}
+      {billRecon.length > 0 && (
+        <div className="card">
+          <h2>กระทบยอดจำนวนบิล Grab (POS delivery vs รายงาน Grab)</h2>
+          <div className="scroll-x">
+            <table className="data">
+              <thead><tr><th>สาขา</th><th>บิลใน POS</th><th>บิลในรายงาน Grab</th><th>ผล</th></tr></thead>
+              <tbody>
+                {billRecon.map((r, i) => (
+                  <tr key={i}>
+                    <td style={{ textAlign: 'left' }}>{branchName(r.branch)}</td>
+                    <td>{r.pos}</td>
+                    <td>{r.grab}</td>
+                    <td style={{ textAlign: 'left' }}>
+                      {r.pos === r.grab
+                        ? <span className="chip ok">✓ ตรงกัน</span>
+                        : <span className="chip bad">✗ ต่าง {Math.abs(r.pos - r.grab)} บิล{r.grab === 0 ? ' (ยังไม่อัปโหลดไฟล์ Grab?)' : r.pos > r.grab ? ' — POS เกิน อาจคีย์ซ้ำ' : ' — POS ขาด อาจลืมคีย์'}</span>}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
       {lines.length === 0 && !busy && !error && (
         <div className="banner warn">ไม่มีข้อมูลรายรับสำหรับวันนี้ — อัปโหลดรายงาน Grab หรือบันทึก Catering ก่อน</div>
       )}
