@@ -41,7 +41,8 @@ export default function GrabDashboard() {
   const [calRefresh, setCalRefresh] = useState(0)
   const [oweSummary, setOweSummary] = useState<DbRow[]>([])
   const [cancelled, setCancelled] = useState<GrabRow[]>([])
-  const [billRecon, setBillRecon] = useState<{ branch: string; pos: number; grab: number; days: number }[]>([])
+  type BillCell = { pos?: number; grab?: number }
+  const [billGrid, setBillGrid] = useState<{ dates: string[]; codes: string[]; cells: Map<string, BillCell> }>({ dates: [], codes: [], cells: new Map() })
   const [count, setCount] = useState(0)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
@@ -301,34 +302,46 @@ export default function GrabDashboard() {
       )}
       {recon.length === 0 && !busy && <div className="banner warn">ไม่มีข้อมูลในช่วงวันที่นี้ — อัปโหลดรายงาน Grab ก่อน</div>}
 
-      {billRecon.length > 0 && (
-        <div className="card">
-          <h2>กระทบยอดจำนวนบิล Grab (POS vs รายงาน Grab) — {from} → {to}</h2>
-          <p className="muted">นับเฉพาะวันที่มีข้อมูลครบทั้งสองฝั่ง (POS sync แล้ว + อัปโหลดไฟล์ Grab แล้ว)</p>
-          <div className="scroll-x">
-            <table className="data">
-              <thead><tr><th>สาขา</th><th>วันที่เทียบได้</th><th>บิลใน POS</th><th>บิลในรายงาน Grab</th><th>ผล</th></tr></thead>
-              <tbody>
-                {billRecon.map((r, i) => (
-                  <tr key={i}>
-                    <td style={{ textAlign: 'left' }}>{branchNameByCode(r.branch)}</td>
-                    <td>{r.days || '—'}</td>
-                    <td>{r.days ? r.pos : '—'}</td>
-                    <td>{r.days ? r.grab : '—'}</td>
-                    <td style={{ textAlign: 'left' }}>
-                      {r.days === 0
-                        ? <span className="chip warn">ไม่มีวันที่ข้อมูลครบทั้งสองฝั่งในช่วงนี้</span>
-                        : r.pos === r.grab
-                          ? <span className="chip ok">✓ ตรงกัน</span>
-                          : <span className="chip bad">✗ ต่าง {Math.abs(r.pos - r.grab)} บิล{r.pos > r.grab ? ' — POS เกิน อาจคีย์ซ้ำ' : ' — POS ขาด อาจลืมคีย์'}</span>}
-                    </td>
+      {billGrid.dates.length > 0 && (() => {
+        const cellText = (c?: { pos?: number; grab?: number }) => {
+          if (!c) return '—'
+          return `${c.pos ?? '–'} / ${c.grab ?? '–'}`
+        }
+        const cellColor = (c?: { pos?: number; grab?: number }) => {
+          if (!c || c.pos === undefined || c.grab === undefined) return 'var(--muted)'
+          return c.pos === c.grab ? 'var(--accent)' : 'var(--danger)'
+        }
+        const sum = (code: string, side: 'pos' | 'grab') =>
+          billGrid.dates.reduce((s2, d) => s2 + (billGrid.cells.get(`${code}|${d}`)?.[side] ?? 0), 0)
+        return (
+          <div className="card">
+            <h2>กระทบยอดจำนวนบิล Grab (POS / รายงาน Grab) — {from} → {to}</h2>
+            <p className="muted">ตัวเลขในช่อง = บิลใน POS / บิลในรายงาน Grab · เขียว = ตรงกัน · แดง = ไม่ตรง (เช็คคีย์ซ้ำ/ลืมคีย์) · – = ฝั่งนั้นยังไม่มีข้อมูลวันนั้น</p>
+            <div className="scroll-x">
+              <table className="data">
+                <thead>
+                  <tr><th>วันที่ (วันขาย)</th>{billGrid.codes.map(c => <th key={c}>{branchNameByCode(c)}</th>)}</tr>
+                </thead>
+                <tbody>
+                  {billGrid.dates.map(d => (
+                    <tr key={d}>
+                      <td style={{ textAlign: 'left' }}>{d}</td>
+                      {billGrid.codes.map(c => {
+                        const cell = billGrid.cells.get(`${c}|${d}`)
+                        return <td key={c} style={{ color: cellColor(cell) }}>{cellText(cell)}</td>
+                      })}
+                    </tr>
+                  ))}
+                  <tr className="total">
+                    <td style={{ textAlign: 'left' }}>รวม</td>
+                    {billGrid.codes.map(c => <td key={c}>{sum(c, 'pos')} / {sum(c, 'grab')}</td>)}
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </tbody>
+              </table>
+            </div>
           </div>
-        </div>
-      )}
+        )
+      })()}
 
       {(owe.size > 0 || oweSummary.length > 0) && (() => {
         const stores = branches.filter(b => b.grab_store_id &&
