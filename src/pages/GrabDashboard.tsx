@@ -1,9 +1,12 @@
 import { useEffect, useState } from 'react'
 import { sb } from '../lib/supabase'
 import type { GrabParse, GrabRow, GrabPayout, GrabCategory } from '../lib/grabParser'
-import { reconByBranch, type BranchRecon } from '../lib/grabCalc'
+import { reconByBranch, isBankSale, type BranchRecon } from '../lib/grabCalc'
 import { useBranches } from './Shell'
 import ReconTable from './ReconTable'
+
+/** date -> storeId -> {earned, paid}; owe cell = paid − earned (Grab owes us => negative) */
+type OweGrid = Map<string, Map<string, { earned: number; paid: number }>>
 
 type DbRow = Record<string, unknown>
 
@@ -67,6 +70,7 @@ export default function GrabDashboard() {
   const [to, setTo] = useState(daysAgo(0))
   const [recon, setRecon] = useState<BranchRecon[]>([])
   const [payouts, setPayouts] = useState<DbRow[]>([])
+  const [owe, setOwe] = useState<OweGrid>(new Map())
   const [count, setCount] = useState(0)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
@@ -94,7 +98,7 @@ export default function GrabDashboard() {
       // cross-date payout check: a payout batch can include rows from other days,
       // so verify each payout against ALL its rows in the DB, not just this date range
       const { data: allPayoutRows, error: are } = payoutIds.size
-        ? await sb.from('grab_rows').select('payout_id,total').in('payout_id', [...payoutIds])
+        ? await sb.from('grab_rows').select('payout_id,total,business_date').in('payout_id', [...payoutIds])
         : { data: [], error: null }
       if (are) throw are
       const payoutRowSum = new Map<string, number>()
@@ -142,6 +146,42 @@ export default function GrabDashboard() {
       }
       setRecon(recons)
       setPayouts((pos as DbRow[]) ?? [])
+
+      // ---- Grab-Owe grid: earned (from rows) vs paid (payout sheet), per date × branch ----
+      // attribute each payout to the business_date most common among its rows
+      const payoutDateVotes = new Map<string, Map<string, number>>()
+      for (const r of (allPayoutRows as DbRow[]) ?? []) {
+        const pid = r.payout_id as string
+        const d = (r.business_date as string) ?? ''
+        if (!d) continue
+        if (!payoutDateVotes.has(pid)) payoutDateVotes.set(pid, new Map())
+        const m = payoutDateVotes.get(pid)!
+        m.set(d, (m.get(d) ?? 0) + 1)
+      }
+      const payoutDate = new Map<string, string>()
+      for (const [pid, votes] of payoutDateVotes) {
+        payoutDate.set(pid, [...votes.entries()].sort((a, z) => z[1] - a[1])[0][0])
+      }
+      const grid: OweGrid = new Map()
+      const cell = (d: string, store: string) => {
+        if (!grid.has(d)) grid.set(d, new Map())
+        const m = grid.get(d)!
+        if (!m.has(store)) m.set(store, { earned: 0, paid: 0 })
+        return m.get(store)!
+      }
+      for (const r of grabRows) {
+        if (!r.businessDate) continue
+        const store = r.grabStoreId || r.storeName
+        const bankAmt = r.category === 'ชำระเงิน' ? (isBankSale(r) ? r.total : 0) : r.total
+        if (bankAmt !== 0) cell(r.businessDate, store).earned += bankAmt
+      }
+      for (const p of (pos2 as DbRow[]) ?? []) {
+        const pid = p.payout_id as string
+        const d = payoutDate.get(pid)
+        if (!d || d < from || d > to) continue
+        cell(d, (p.grab_store_id as string) ?? '').paid += Number(p.amount ?? 0)
+      }
+      setOwe(grid)
     } catch (err) {
       setError((err as Error).message)
     }
@@ -168,6 +208,63 @@ export default function GrabDashboard() {
         </div>
       )}
       {recon.length === 0 && !busy && <div className="banner warn">ไม่มีข้อมูลในช่วงวันที่นี้ — อัปโหลดรายงาน Grab ก่อน</div>}
+
+      {owe.size > 0 && (() => {
+        const stores = branches.filter(b => b.grab_store_id &&
+          [...owe.values()].some(m => m.has(b.grab_store_id!)))
+        const dates = [...owe.keys()].sort()
+        const oweOf = (d: string, sid: string) => {
+          const c = owe.get(d)?.get(sid)
+          return c ? c.paid - c.earned : 0
+        }
+        const branchTotal = (sid: string) => dates.reduce((s, d) => s + oweOf(d, sid), 0)
+        const dateTotal = (d: string) => stores.reduce((s, b) => s + oweOf(d, b.grab_store_id!), 0)
+        const grand = stores.reduce((s, b) => s + branchTotal(b.grab_store_id!), 0)
+        const Cell = ({ v }: { v: number }) => (
+          <td style={{ color: Math.abs(v) <= 0.01 ? 'var(--muted)' : v < 0 ? 'var(--danger)' : 'var(--warn)' }}>
+            {v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+          </td>
+        )
+        return (
+          <div className="card">
+            <h2>Grab — Owe</h2>
+            <p className="muted">ติดลบ = Grab ค้างจ่ายเรา · บวก = เราค้าง Grab (จ่ายเกิน) · เทียบ โอนจริง − คำนวณ ต่อวัน</p>
+            <div className="kpis">
+              {stores.map(b => (
+                <div className="kpi" key={b.code}>
+                  <div className="v" style={{ color: branchTotal(b.grab_store_id!) < -0.01 ? 'var(--danger)' : 'inherit' }}>{fmt(branchTotal(b.grab_store_id!))}</div>
+                  <div className="l">{b.name_en}</div>
+                </div>
+              ))}
+              <div className="kpi">
+                <div className="v" style={{ color: grand < -0.01 ? 'var(--danger)' : 'inherit' }}>{fmt(grand)}</div>
+                <div className="l">รวมทุกสาขา</div>
+              </div>
+            </div>
+            <div className="scroll-x">
+              <table className="data">
+                <thead>
+                  <tr><th>วันที่ (วันขาย)</th>{stores.map(b => <th key={b.code}>{b.name_en}</th>)}<th>รวม</th></tr>
+                </thead>
+                <tbody>
+                  {dates.map(d => (
+                    <tr key={d}>
+                      <td style={{ textAlign: 'left' }}>{d}</td>
+                      {stores.map(b => <Cell key={b.code} v={oweOf(d, b.grab_store_id!)} />)}
+                      <Cell v={dateTotal(d)} />
+                    </tr>
+                  ))}
+                  <tr className="total">
+                    <td style={{ textAlign: 'left' }}>รวม</td>
+                    {stores.map(b => <Cell key={b.code} v={branchTotal(b.grab_store_id!)} />)}
+                    <Cell v={grand} />
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )
+      })()}
 
       {payouts.length > 0 && (
         <div className="card">
