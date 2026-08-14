@@ -18,14 +18,14 @@ describe('buildPeakReceiptLines', () => {
       [{ branchCode: 'silom', name: 'งานเลี้ยง A', netReceiving: 12091 }],
     )
     expect(lines).toHaveLength(4) // gaysorn bank; silom bank(neg) + wallet + catering
-    const gb = lines.find(l => l.customer === 'C00065' && l.description === 'Grab')!
+    const gb = lines.find(l => l.customer === 'C00065' && l.description === 'Grab โอนเข้าธนาคาร')!
     expect(gb.amount).toBeCloseTo(1034.30, 2)
     expect(gb.paidBy).toBe('BSV002')
     expect(gb.classGroup).toBe('00002')
     expect(gb.docDate).toBe(20260810)
-    const sneg = lines.find(l => l.customer === 'C00066' && l.description === 'Grab')!
+    const sneg = lines.find(l => l.customer === 'C00066' && l.description === 'Grab โอนเข้าธนาคาร')!
     expect(sneg.amount).toBeCloseTo(-160.97, 2) // negative day allowed
-    const sw = lines.find(l => l.description === 'Grab ถุงเงิน')!
+    const sw = lines.find(l => l.description === 'Grab ถุงเงิน (TCT)')!
     expect(sw.paidBy).toBe('BSV020')
     expect(sw.amount).toBeCloseTo(3400, 2)
     const cat = lines.find(l => l.description.startsWith('Catering'))!
