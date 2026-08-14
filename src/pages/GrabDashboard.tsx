@@ -154,10 +154,10 @@ export default function GrabDashboard() {
         const c = k.split('|')[0]
         daysByBranch.set(c, (daysByBranch.get(c) ?? 0) + 1)
       }
-      // every branch that has grab activity in the range appears, even with 0 comparable days
+      // every grab-selling branch always appears, even with no activity in the range
       const codes = [...new Set([
+        ...branches.filter(b => b.is_active && b.grab_store_id).map(b => b.code),
         ...posAgg.grabPosBills.keys(), ...grabBillsByBranch.keys(),
-        ...grabRows.filter(r => r.category === 'ชำระเงิน').map(r => byStoreId.get(r.grabStoreId)?.code ?? '').filter(Boolean),
       ])].sort()
       setBillRecon(codes.map(c => ({
         branch: c,
