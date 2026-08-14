@@ -47,8 +47,8 @@ export default function ReconTable({ recon, branchName }: {
           <tr className="total"><td>= ยอดรับสุทธิ</td>{cols.map((b, i) => <td key={i}>{fmt(b.netReceiving)}</td>)}</tr>
 
           <tr className="section"><td colSpan={cols.length + 1}>Settlement — คำนวณจากรายการชำระเงิน แล้วเทียบยอดโอนจริง</td></tr>
-          <tr><td>ธนาคาร (คำนวณจากรายการ)</td>{cols.map((b, i) => <td key={i}>{fmt(b.bankPayoutCalc)}</td>)}</tr>
-          <tr><td>ยอดโอนจริง (ชีทการจ่ายรายได้)</td>{cols.map((b, i) => (
+          <tr><td>โอนเข้าธนาคาร (คำนวณ)</td>{cols.map((b, i) => <td key={i}>{fmt(b.bankPayoutCalc)}</td>)}</tr>
+          <tr><td>โอนเข้าธนาคาร (ยอดจริง)</td>{cols.map((b, i) => (
             <td key={i}>
               {b.payoutSheetAmount != null ? fmt(b.payoutSheetAmount) : '—'}
               {b.payoutMatches === true && <span className="pct" style={{ color: 'var(--accent)' }}>✓ ตรง</span>}
