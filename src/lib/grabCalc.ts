@@ -18,6 +18,7 @@ export type BranchRecon = {
   orderNets: number
   tctCommission: number
   adjOther: number
+  walletShift: number
   adsManual: number
   adsAuto: number
   adsTotal: number
@@ -42,14 +43,14 @@ function blank(store: string, grabStoreId: string): BranchRecon {
     grossBank: 0, discBank: 0, netSalesBank: 0,
     commPlatform: 0, commOrder: 0, commDelivery: 0, commOther: 0,
     marketingFee: 0, mdrTotal: 0, wht: 0, orderNets: 0,
-    tctCommission: 0, adjOther: 0, adsManual: 0, adsAuto: 0, adsTotal: 0,
+    tctCommission: 0, adjOther: 0, walletShift: 0, adsManual: 0, adsAuto: 0, adsTotal: 0,
     bankPayoutCalc: 0, payoutSheetAmount: null, payoutMatches: null,
     grossWallet: 0, discWallet: 0, walletReceive: 0,
     totalGross: 0, totalNetSales: 0, totalCosts: 0, netReceiving: 0,
   }
 }
 
-function addRow(b: BranchRecon, r: GrabRow): void {
+function addRow(b: BranchRecon, r: GrabRow, tctCodes: Set<string>): void {
   if (r.category === 'ชำระเงิน') {
     const disc = r.shopDiscount + r.deliveryDiscount
     if (r.payoutId) {
@@ -72,10 +73,15 @@ function addRow(b: BranchRecon, r: GrabRow): void {
       b.walletReceive += r.total
     }
   } else if (r.category === 'การปรับรายได้') {
-    // TCT commission clawbacks vs other income adjustments (e.g. 'อื่นๆ' credits that
-    // shift a TCT order's money into the bank payout)
-    if (r.subitem.startsWith('Commission for Govt Campaign')) b.tctCommission += r.total
-    else b.adjOther += r.total
+    if (r.subitem.startsWith('Commission for Govt Campaign')) {
+      b.tctCommission += r.total
+    } else if (r.orderCode && tctCodes.has(r.orderCode)) {
+      // 'อื่นๆ' tied to a TCT order = that order's money paid via the bank payout
+      // instead of ถุงเงิน — a stream shift, not income and not a cost
+      b.walletShift += r.total
+    } else {
+      b.adjOther += r.total
+    }
   } else if (r.category === 'โฆษณา') {
     if (r.description.startsWith('Manual')) b.adsManual += r.total
     else if (r.description.startsWith('Automatic')) b.adsAuto += r.total
@@ -85,11 +91,13 @@ function addRow(b: BranchRecon, r: GrabRow): void {
 }
 
 function finalize(b: BranchRecon, payoutTotal: number | null): void {
-  b.bankPayoutCalc = b.orderNets + b.tctCommission + b.adjOther + b.adsTotal
+  b.bankPayoutCalc = b.orderNets + b.tctCommission + b.adjOther + b.walletShift + b.adsTotal
+  b.walletReceive -= b.walletShift
   b.payoutSheetAmount = payoutTotal
   b.payoutMatches = payoutTotal == null ? null : Math.abs(b.bankPayoutCalc - payoutTotal) <= 0.01
   b.totalGross = b.grossBank + b.grossWallet
-  b.totalNetSales = b.netSalesBank + b.walletReceive - 0 // wallet receive == wallet net sales
+  // performance uses true net sales (pre-shift): wallet net sales = gross + discounts
+  b.totalNetSales = b.netSalesBank + b.grossWallet + b.discWallet
   // deduction columns are negative in the source; report total costs as a positive magnitude
   // (adjOther is usually a credit, so it reduces total costs)
   b.totalCosts = -(b.commPlatform + b.commOrder + b.commDelivery + b.commOther +
@@ -100,10 +108,19 @@ function finalize(b: BranchRecon, payoutTotal: number | null): void {
 /** Aggregate parsed grab rows per store; company row (store = COMPANY) appended last. */
 export function reconByBranch(p: GrabParse): BranchRecon[] {
   const byStore = new Map<string, BranchRecon>()
+  // first pass: which order codes are TCT (wallet) sales, per store
+  const tctCodesByStore = new Map<string, Set<string>>()
+  for (const r of p.rows) {
+    if (r.category === 'ชำระเงิน' && !r.payoutId && r.orderCode) {
+      const key = r.grabStoreId || r.storeName
+      if (!tctCodesByStore.has(key)) tctCodesByStore.set(key, new Set())
+      tctCodesByStore.get(key)!.add(r.orderCode)
+    }
+  }
   for (const r of p.rows) {
     const key = r.grabStoreId || r.storeName
     if (!byStore.has(key)) byStore.set(key, blank(r.storeName, r.grabStoreId))
-    addRow(byStore.get(key)!, r)
+    addRow(byStore.get(key)!, r, tctCodesByStore.get(key) ?? new Set())
   }
   const payoutByStore = new Map<string, number>()
   for (const po of p.payouts) {
@@ -125,11 +142,12 @@ export function reconByBranch(p: GrabParse): BranchRecon[] {
     company.commDelivery += b.commDelivery; company.commOther += b.commOther
     company.marketingFee += b.marketingFee; company.mdrTotal += b.mdrTotal; company.wht += b.wht
     company.orderNets += b.orderNets; company.tctCommission += b.tctCommission
-    company.adjOther += b.adjOther
+    company.adjOther += b.adjOther; company.walletShift += b.walletShift
     company.adsManual += b.adsManual; company.adsAuto += b.adsAuto; company.adsTotal += b.adsTotal
     company.grossWallet += b.grossWallet; company.discWallet += b.discWallet; company.walletReceive += b.walletReceive
     companyPayout += b.payoutSheetAmount ?? 0
   }
+  company.walletReceive += company.walletShift // finalize subtracts it again
   finalize(company, havePayouts ? companyPayout : null)
   out.sort((a, z) => a.store.localeCompare(z.store))
   out.push(company)

@@ -89,3 +89,21 @@ describe('adjOther (อื่นๆ income adjustments)', () => {
     expect(b.totalCosts).toBeCloseTo(15.31 - 48, 2)
   })
 })
+
+describe('walletShift (อื่นๆ tied to TCT orders)', () => {
+  it('moves money from wallet to bank without double counting', () => {
+    const p = parse([
+      row({ orderCode: 'GF-1', amount: 159, netSales: 159, total: 159 }), // TCT sale
+      row({ category: 'การปรับรายได้', subitem: 'อื่นๆ', orderCode: 'GF-1', payoutId: 'P1', amount: 48, total: 48 }),
+      row({ payoutId: 'P1', amount: 100, netSales: 100, total: 100 }),    // regular order
+    ])
+    const b = reconByBranch(p)[0]
+    expect(b.walletShift).toBeCloseTo(48, 2)
+    expect(b.adjOther).toBeCloseTo(0, 2)
+    expect(b.walletReceive).toBeCloseTo(111, 2)          // 159 − 48
+    expect(b.bankPayoutCalc).toBeCloseTo(148, 2)         // 100 + 48
+    expect(b.netReceiving).toBeCloseTo(259, 2)           // = 159 + 100, no double count
+    expect(b.totalNetSales).toBeCloseTo(259, 2)
+    expect(b.totalCosts).toBeCloseTo(0, 2)               // a shift is not a cost
+  })
+})
