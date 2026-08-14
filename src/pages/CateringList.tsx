@@ -19,20 +19,32 @@ const fmt = (n: number | null) => (n ?? 0).toLocaleString('en-US', { minimumFrac
 
 export default function CateringList() {
   const [rows, setRows] = useState<EventRow[]>([])
+  const [err, setErr] = useState('')
 
-  useEffect(() => {
+  function load() {
     sb.from('catering_events').select('*').order('event_date', { ascending: false }).limit(100)
       .then(({ data }) => setRows((data as EventRow[]) ?? []))
-  }, [])
+  }
+  useEffect(() => { load() }, [])
+
+  async function remove(r: EventRow) {
+    const ok = window.confirm(`ลบงาน "${r.name}" (${r.event_date}) ?\n\nเมนู/ต้นทุนของงานนี้จะถูกลบด้วย และยอด ${fmt(r.net_receiving)} จะหายจากไฟล์ Peak ของวันนั้น`)
+    if (!ok) return
+    setErr('')
+    const { error } = await sb.from('catering_events').delete().eq('id', r.id)
+    if (error) { setErr('ลบไม่สำเร็จ: ' + error.message); return }
+    load()
+  }
 
   return (
     <div>
       <h1>Catering / Event</h1>
       <p><Link to="/catering/new"><button className="primary">+ บันทึกงานใหม่</button></Link></p>
+      {err && <div className="banner bad">{err}</div>}
       <div className="card scroll-x">
         <table className="data">
           <thead>
-            <tr><th>วันที่</th><th>ชื่องาน</th><th>ประเภท</th><th>ยอดรับสุทธิ</th><th>สถานะ</th></tr>
+            <tr><th>วันที่</th><th>ชื่องาน</th><th>ประเภท</th><th>ยอดรับสุทธิ</th><th>สถานะ</th><th></th></tr>
           </thead>
           <tbody>
             {rows.map(r => (
@@ -48,9 +60,14 @@ export default function CateringList() {
                       ? <span className="chip warn">รอใส่ต้นทุน</span>
                       : <span className="chip bad">draft</span>}
                 </td>
+                <td>
+                  <button className="ghost" title="ลบงานนี้" aria-label={`ลบงาน ${r.name}`}
+                    style={{ color: 'var(--danger)', padding: '2px 8px' }}
+                    onClick={() => remove(r)}>✕</button>
+                </td>
               </tr>
             ))}
-            {rows.length === 0 && <tr><td colSpan={5} className="muted" style={{ textAlign: 'left' }}>ยังไม่มีงานบันทึกไว้</td></tr>}
+            {rows.length === 0 && <tr><td colSpan={6} className="muted" style={{ textAlign: 'left' }}>ยังไม่มีงานบันทึกไว้</td></tr>}
           </tbody>
         </table>
       </div>
