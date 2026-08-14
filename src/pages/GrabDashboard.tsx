@@ -76,6 +76,7 @@ export default function GrabDashboard() {
   const [savingUpload, setSavingUpload] = useState(false)
   const fileInput = useRef<HTMLInputElement>(null)
   const [calRefresh, setCalRefresh] = useState(0)
+  const [oweSummary, setOweSummary] = useState<DbRow[]>([])
   const [count, setCount] = useState(0)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
@@ -158,6 +159,10 @@ export default function GrabDashboard() {
       }
       setRecon(recons)
       setPayouts(pos)
+
+      const { data: oweSum, error: oe } = await sb.from('grab_owe_summary').select('*')
+      if (oe) throw oe
+      setOweSummary((oweSum as DbRow[]) ?? [])
 
       // ---- Grab-Owe grid: earned (from rows) vs paid (payout sheet), per date × branch ----
       // attribute each payout to the business_date most common among its rows
@@ -289,7 +294,7 @@ export default function GrabDashboard() {
       )}
       {recon.length === 0 && !busy && <div className="banner warn">ไม่มีข้อมูลในช่วงวันที่นี้ — อัปโหลดรายงาน Grab ก่อน</div>}
 
-      {owe.size > 0 && (() => {
+      {(owe.size > 0 || oweSummary.length > 0) && (() => {
         const stores = branches.filter(b => b.grab_store_id &&
           [...owe.values()].some(m => m.has(b.grab_store_id!)))
         const dates = [...owe.keys()].sort()
@@ -310,21 +315,28 @@ export default function GrabDashboard() {
         }
         return (
           <div className="card">
-            <h2>Grab — Owe</h2>
-            <p className="muted">ติดลบ = Grab ค้างจ่ายเรา · บวก = เราค้าง Grab (จ่ายเกิน) · เทียบ โอนจริง − คำนวณ ต่อวัน</p>
+            <h2>Mismatch</h2>
+            <p className="muted">ติดลบ = Grab ค้างจ่ายเรา · บวก = เราค้าง Grab (จ่ายเกิน)</p>
+            <div className="muted" style={{ fontWeight: 600, marginBottom: 4 }}>ยอดค้างสะสมทั้งหมด (ทุกวัน ไม่ขึ้นกับช่วงวันที่)</div>
             <div className="kpis">
-              {stores.map(b => (
-                <div className="kpi" key={b.code}>
-                  <div className="v" style={{ color: branchTotal(b.grab_store_id!) < -0.01 ? 'var(--danger)' : 'inherit' }}>{fmt(Math.abs(branchTotal(b.grab_store_id!)) <= 0.005 ? 0 : branchTotal(b.grab_store_id!))}</div>
-                  <div className="l">{b.name_en}</div>
-                </div>
-              ))}
+              {oweSummary.map((r, i) => {
+                const v = Number(r.owe ?? 0)
+                return (
+                  <div className="kpi" key={i}>
+                    <div className="v" style={{ color: v < -0.01 ? 'var(--danger)' : v > 0.01 ? 'var(--warn)' : 'inherit' }}>{fmt(Math.abs(v) <= 0.005 ? 0 : v)}</div>
+                    <div className="l">{branchName((r.grab_store_id as string) ?? '')}</div>
+                  </div>
+                )
+              })}
               <div className="kpi">
-                <div className="v" style={{ color: grand < -0.01 ? 'var(--danger)' : 'inherit' }}>{fmt(grand)}</div>
+                <div className="v" style={{ color: oweSummary.reduce((s2, r) => s2 + Number(r.owe ?? 0), 0) < -0.01 ? 'var(--danger)' : 'inherit' }}>
+                  {fmt(oweSummary.reduce((s2, r) => s2 + Number(r.owe ?? 0), 0))}
+                </div>
                 <div className="l">รวมทุกสาขา</div>
               </div>
             </div>
-            <div className="scroll-x">
+            {dates.length > 0 && <div className="muted" style={{ fontWeight: 600, margin: '10px 0 4px' }}>รายวัน (ตามช่วงวันที่ที่เลือก)</div>}
+            {dates.length > 0 && <div className="scroll-x">
               <table className="data">
                 <thead>
                   <tr><th>วันที่ (วันขาย)</th>{stores.map(b => <th key={b.code}>{b.name_en}</th>)}<th>รวม</th></tr>
@@ -344,7 +356,7 @@ export default function GrabDashboard() {
                   </tr>
                 </tbody>
               </table>
-            </div>
+            </div>}
           </div>
         )
       })()}
