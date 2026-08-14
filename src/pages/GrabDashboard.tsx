@@ -139,7 +139,7 @@ export default function GrabDashboard() {
                     <td>{branchName((p.grab_store_id as string) ?? '')}</td>
                     <td style={{ textAlign: 'left' }}>{p.payout_id as string}</td>
                     <td>{fmt(Number(p.amount ?? 0))}</td>
-                    <td>{String(p.transferred_at ?? '').slice(0, 16).replace('T', ' ')}</td>
+                    <td>{p.transferred_at ? new Date(p.transferred_at as string).toLocaleString('th-TH', { timeZone: 'Asia/Bangkok', dateStyle: 'short', timeStyle: 'short' }) : ''}</td>
                     <td>{p.bank_last4 as string}</td>
                   </tr>
                 ))}
