@@ -220,11 +220,14 @@ export default function GrabDashboard() {
         const branchTotal = (sid: string) => dates.reduce((s, d) => s + oweOf(d, sid), 0)
         const dateTotal = (d: string) => stores.reduce((s, b) => s + oweOf(d, b.grab_store_id!), 0)
         const grand = stores.reduce((s, b) => s + branchTotal(b.grab_store_id!), 0)
-        const Cell = ({ v }: { v: number }) => (
-          <td style={{ color: Math.abs(v) <= 0.01 ? 'var(--muted)' : v < 0 ? 'var(--danger)' : 'var(--warn)' }}>
-            {v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-          </td>
-        )
+        const Cell = ({ v }: { v: number }) => {
+          const clean = Math.abs(v) <= 0.005 ? 0 : v
+          return (
+            <td style={{ color: clean === 0 ? 'var(--muted)' : clean < 0 ? 'var(--danger)' : 'var(--warn)' }}>
+              {clean.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            </td>
+          )
+        }
         return (
           <div className="card">
             <h2>Grab — Owe</h2>
@@ -232,7 +235,7 @@ export default function GrabDashboard() {
             <div className="kpis">
               {stores.map(b => (
                 <div className="kpi" key={b.code}>
-                  <div className="v" style={{ color: branchTotal(b.grab_store_id!) < -0.01 ? 'var(--danger)' : 'inherit' }}>{fmt(branchTotal(b.grab_store_id!))}</div>
+                  <div className="v" style={{ color: branchTotal(b.grab_store_id!) < -0.01 ? 'var(--danger)' : 'inherit' }}>{fmt(Math.abs(branchTotal(b.grab_store_id!)) <= 0.005 ? 0 : branchTotal(b.grab_store_id!))}</div>
                   <div className="l">{b.name_en}</div>
                 </div>
               ))}
