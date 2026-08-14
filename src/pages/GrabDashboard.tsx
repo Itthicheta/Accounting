@@ -133,19 +133,23 @@ export default function GrabDashboard() {
       const posRows = await fetchAll<PosViewRow>((f2, t2) => sb.from('pos_channel_payment')
         .select('*').gte('business_date', f0).lte('business_date', t0)
         .order('location_id').range(f2, t2))
-      const posAgg = buildPosLines(posRows, byLocation)
-      // compare only days the POS sync actually covers for each branch —
-      // otherwise missing sync days masquerade as staff keying errors
-      const posDays = new Set(posRows.map(r => `${byLocation.get(r.location_id)}|${r.business_date}`))
+      // compare only days BOTH sources cover (per branch): a missing POS sync day
+      // or a not-yet-uploaded Grab file must not masquerade as a keying error
+      const grabDays = new Set(grabRows.map(r => `${byStoreId.get(r.grabStoreId)?.code}|${r.businessDate}`))
+      const bothDays = new Set(posRows
+        .map(r => `${byLocation.get(r.location_id)}|${r.business_date}`)
+        .filter(k => grabDays.has(k)))
+      const posAgg = buildPosLines(posRows.filter(r =>
+        bothDays.has(`${byLocation.get(r.location_id)}|${r.business_date}`)), byLocation)
       const grabBillsByBranch = new Map<string, number>()
       for (const r of grabRows) {
         if (r.category !== 'ชำระเงิน') continue
         const code = byStoreId.get(r.grabStoreId)?.code ?? ''
-        if (code && posDays.has(`${code}|${r.businessDate}`)) {
+        if (code && bothDays.has(`${code}|${r.businessDate}`)) {
           grabBillsByBranch.set(code, (grabBillsByBranch.get(code) ?? 0) + 1)
         }
       }
-      const posCovered = new Set(posRows.map(r => byLocation.get(r.location_id)).filter(Boolean))
+      const posCovered = new Set([...bothDays].map(k => k.split('|')[0]))
       const codes = [...new Set([...posAgg.grabPosBills.keys(), ...grabBillsByBranch.keys()])].sort()
       setBillRecon(codes.map(c => ({
         branch: c,
