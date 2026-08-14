@@ -5,20 +5,25 @@ import { useBranches } from './Shell'
 
 const fmt = (n: number) => n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
-type Row = {
+type Cell = { bills: number; amount: number }
+type BranchBlock = {
   branchCode: string
-  methodName: string
-  methodCode: string
-  methodGroup: string
-  storefront: { bills: number; amount: number }   // dine_in + take_away combined
-  delivery: { bills: number; amount: number }
+  store: Map<string, Cell>       // storefront (dine_in + take_away) by method key
+  storeOther: Map<string, Cell>  // future methods (alipay, wechat, …) by name
+  grabTransfer: Cell             // grab-method bills (settle via Grab payout)
+  grabTct: Cell                  // delivery × ไทยช่วยไทย
+  deliveryOther: Map<string, Cell>
+  internal: Cell
 }
+
+const blank = (): Cell => ({ bills: 0, amount: 0 })
+const add = (c: Cell, bills: number, amount: number) => { c.bills += bills; c.amount += amount }
 
 export default function PosSales() {
   const branches = useBranches()
   const [day, setDay] = useState(bkkToday())
-  const [branch, setBranch] = useState('')       // '' = all branches
-  const [rows, setRows] = useState<Row[]>([])
+  const [branch, setBranch] = useState('')
+  const [blocks, setBlocks] = useState<BranchBlock[]>([])
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
 
@@ -29,33 +34,45 @@ export default function PosSales() {
   async function load() {
     setBusy(true); setError('')
     try {
-      let q = (f: number, t: number) => {
+      const data = await fetchAll<PosViewRow>((f, t) => {
         let query = sb.from('pos_channel_payment').select('*').eq('business_date', day)
         const loc = branches.find(b => b.code === branch)?.pos_location_id
         if (branch && loc) query = query.eq('location_id', loc)
         return query.order('location_id').range(f, t)
-      }
-      const data = await fetchAll<PosViewRow>(q)
-      const agg = new Map<string, Row>()
+      })
+      const byBranch = new Map<string, BranchBlock>()
       for (const r of data) {
         const code = byLocation.get(r.location_id)
         if (!code) continue
-        const key = `${code}|${r.method_code}`
-        if (!agg.has(key)) {
-          agg.set(key, {
-            branchCode: code, methodName: r.method_name, methodCode: r.method_code,
-            methodGroup: r.method_group,
-            storefront: { bills: 0, amount: 0 }, delivery: { bills: 0, amount: 0 },
+        if (!byBranch.has(code)) {
+          byBranch.set(code, {
+            branchCode: code, store: new Map(), storeOther: new Map(),
+            grabTransfer: blank(), grabTct: blank(), deliveryOther: new Map(), internal: blank(),
           })
         }
-        const a = agg.get(key)!
-        const slot = r.channel === 'delivery' ? a.delivery : a.storefront
-        slot.bills += Number(r.bills)
-        slot.amount += Number(r.amount_thb)
+        const b = byBranch.get(code)!
+        const bills = Number(r.bills)
+        const amount = Number(r.amount_thb)
+        if (r.method_group === 'internal') { add(b.internal, bills, amount); continue }
+        if (r.method_group === 'platform') { add(b.grabTransfer, bills, amount); continue }
+        if (r.channel === 'delivery') {
+          if (r.method_code === 'thai_chuai_thai') add(b.grabTct, bills, amount)
+          else {
+            if (!b.deliveryOther.has(r.method_name)) b.deliveryOther.set(r.method_name, blank())
+            add(b.deliveryOther.get(r.method_name)!, bills, amount)
+          }
+          continue
+        }
+        // storefront: dine_in + take_away combined
+        if (['bank_transfer', 'cash', 'thai_chuai_thai'].includes(r.method_code)) {
+          if (!b.store.has(r.method_code)) b.store.set(r.method_code, blank())
+          add(b.store.get(r.method_code)!, bills, amount)
+        } else {
+          if (!b.storeOther.has(r.method_name)) b.storeOther.set(r.method_name, blank())
+          add(b.storeOther.get(r.method_name)!, bills, amount)
+        }
       }
-      setRows([...agg.values()].sort((a, z) =>
-        a.branchCode.localeCompare(z.branchCode) ||
-        (z.storefront.amount + z.delivery.amount) - (a.storefront.amount + a.delivery.amount)))
+      setBlocks([...byBranch.values()].sort((a, z) => a.branchCode.localeCompare(z.branchCode)))
     } catch (err) {
       setError((err as Error).message)
     }
@@ -64,14 +81,15 @@ export default function PosSales() {
 
   useEffect(() => { if (branches.length) load() }, [branches.length, day, branch])
 
-  const branchesInData = [...new Set(rows.map(r => r.branchCode))]
-  const totalAmount = rows.reduce((s, r) => s + r.storefront.amount + r.delivery.amount, 0)
-  const totalBills = rows.reduce((s, r) => s + r.storefront.bills + r.delivery.bills, 0)
+  const grand = blocks.reduce((s, b) => {
+    const store = [...b.store.values(), ...b.storeOther.values()]
+    const grab = [b.grabTransfer, b.grabTct, ...b.deliveryOther.values()]
+    return s + [...store, ...grab].reduce((x, c) => x + c.amount, 0)
+  }, 0)
 
   return (
     <div>
       <h1>POS Sales</h1>
-      <p className="muted">ยอดขายจาก POS ตามช่องทางจ่ายเงิน (dine-in + take-away รวมกัน · delivery แยกไว้เพื่อกระทบยอดกับ Grab)</p>
       <div className="card row">
         <div><label>วันที่</label><input type="date" value={day} onChange={e => setDay(e.target.value)} /></div>
         <div><label>สาขา</label>
@@ -84,52 +102,55 @@ export default function PosSales() {
       </div>
       {error && <div className="banner bad">{error}</div>}
 
-      {branchesInData.map(bc => {
-        const brRows = rows.filter(r => r.branchCode === bc)
-        const brTotal = brRows.reduce((s, r) => s + r.storefront.amount + r.delivery.amount, 0)
+      {blocks.map(b => {
+        const rows: { label: string; cell?: Cell; kind: 'section' | 'row' | 'total' }[] = []
+        rows.push({ label: 'Dine-in & Takeaway', kind: 'section' })
+        const storeOrder: [string, string][] = [['bank_transfer', 'เงินโอน'], ['cash', 'เงินสด'], ['thai_chuai_thai', 'ไทยช่วยไทย']]
+        for (const [code, label] of storeOrder) {
+          rows.push({ label, cell: b.store.get(code) ?? blank(), kind: 'row' })
+        }
+        for (const [name, cell] of b.storeOther) rows.push({ label: `อื่นๆ — ${name}`, cell, kind: 'row' })
+        rows.push({ label: 'Grab', kind: 'section' })
+        rows.push({ label: 'เงินโอน', cell: b.grabTransfer, kind: 'row' })
+        rows.push({ label: 'ไทยช่วยไทย', cell: b.grabTct, kind: 'row' })
+        for (const [name, cell] of b.deliveryOther) rows.push({ label: `อื่นๆ (delivery) — ${name}`, cell, kind: 'row' })
+        const all = rows.filter(r => r.cell).map(r => r.cell!)
+        const total: Cell = { bills: all.reduce((s, c) => s + c.bills, 0), amount: all.reduce((s, c) => s + c.amount, 0) }
+
         return (
-          <div className="card scroll-x" key={bc}>
-            <h2>{nameOf(bc)} — {fmt(brTotal)}</h2>
-            <table className="data">
+          <div className="card scroll-x" key={b.branchCode}>
+            <h2>{nameOf(b.branchCode)}</h2>
+            <table className="data" style={{ maxWidth: 520 }}>
               <thead>
-                <tr><th>ช่องทางจ่ายเงิน</th><th>บิลหน้าร้าน</th><th>ยอดหน้าร้าน</th><th>บิล delivery</th><th>ยอด delivery</th><th>รวม</th></tr>
+                <tr><th style={{ textAlign: 'left' }}>ช่องทาง</th><th>บิล</th><th>จำนวนเงิน</th></tr>
               </thead>
               <tbody>
-                {brRows.map((r, i) => (
-                  <tr key={i}>
-                    <td style={{ textAlign: 'left' }}>
-                      {r.methodName}
-                      {r.methodGroup === 'internal' && <span className="pct"> (internal — ไม่เข้า Peak)</span>}
-                      {r.methodGroup === 'platform' && <span className="pct"> (เงินมาจากรอบโอน Grab)</span>}
-                    </td>
-                    <td>{r.storefront.bills || '—'}</td>
-                    <td>{r.storefront.amount ? fmt(r.storefront.amount) : '—'}</td>
-                    <td>{r.delivery.bills || '—'}</td>
-                    <td>{r.delivery.amount ? fmt(r.delivery.amount) : '—'}</td>
-                    <td>{fmt(r.storefront.amount + r.delivery.amount)}</td>
-                  </tr>
-                ))}
+                {rows.map((r, i) => r.kind === 'section'
+                  ? <tr className="section" key={i}><td colSpan={3}>{r.label}</td></tr>
+                  : <tr key={i}>
+                      <td style={{ textAlign: 'left', paddingLeft: 20 }}>{r.label}</td>
+                      <td>{r.cell!.bills || '—'}</td>
+                      <td>{r.cell!.amount ? fmt(r.cell!.amount) : '—'}</td>
+                    </tr>)}
                 <tr className="total">
-                  <td style={{ textAlign: 'left' }}>รวม</td>
-                  <td>{brRows.reduce((s, r) => s + r.storefront.bills, 0)}</td>
-                  <td>{fmt(brRows.reduce((s, r) => s + r.storefront.amount, 0))}</td>
-                  <td>{brRows.reduce((s, r) => s + r.delivery.bills, 0)}</td>
-                  <td>{fmt(brRows.reduce((s, r) => s + r.delivery.amount, 0))}</td>
-                  <td>{fmt(brTotal)}</td>
+                  <td style={{ textAlign: 'left' }}>Total</td>
+                  <td>{total.bills}</td>
+                  <td>{fmt(total.amount)}</td>
                 </tr>
+                {b.internal.bills > 0 && (
+                  <tr><td className="muted" style={{ textAlign: 'left' }}>internal (staff meal ฯลฯ) — ไม่นับเป็นยอดขาย</td>
+                    <td className="muted">{b.internal.bills}</td><td className="muted">{fmt(b.internal.amount)}</td></tr>
+                )}
               </tbody>
             </table>
           </div>
         )
       })}
 
-      {rows.length > 0 && !branch && (
-        <div className="kpis">
-          <div className="kpi"><div className="v">{fmt(totalAmount)}</div><div className="l">รวมทุกสาขา</div></div>
-          <div className="kpi"><div className="v">{totalBills}</div><div className="l">บิลทั้งหมด</div></div>
-        </div>
+      {blocks.length > 1 && (
+        <div className="kpis"><div className="kpi"><div className="v">{fmt(grand)}</div><div className="l">รวมทุกสาขา</div></div></div>
       )}
-      {rows.length === 0 && !busy && !error && (
+      {blocks.length === 0 && !busy && !error && (
         <div className="banner warn">ไม่มีข้อมูล POS สำหรับวันที่นี้ (สาขาที่ sync แล้ว: Gaysorn, Sathorn Square)</div>
       )}
     </div>
