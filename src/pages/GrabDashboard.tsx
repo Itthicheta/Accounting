@@ -77,6 +77,7 @@ export default function GrabDashboard() {
   const fileInput = useRef<HTMLInputElement>(null)
   const [calRefresh, setCalRefresh] = useState(0)
   const [oweSummary, setOweSummary] = useState<DbRow[]>([])
+  const [cancelled, setCancelled] = useState<GrabRow[]>([])
   const [count, setCount] = useState(0)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
@@ -137,6 +138,8 @@ export default function GrabDashboard() {
         periodStart: f0, periodEnd: t0, declaredStart: f0, declaredEnd: t0, warnings: [],
       }
       setCount(grabRows.length)
+      setCancelled(grabRows.filter(r => r.category === 'ยกเลิก')
+        .sort((a, z) => (z.businessDate + z.grabCreatedAt).localeCompare(a.businessDate + a.grabCreatedAt)))
       const recons = grabRows.length ? reconByBranch(parse) : []
       // override payout match: ✓ when every payout of the branch balances across ALL its DB rows
       const pidsByStore = new Map<string, Set<string>>()
@@ -360,6 +363,29 @@ export default function GrabDashboard() {
           </div>
         )
       })()}
+
+      {cancelled.length > 0 && (
+        <div className="card">
+          <h2>ออเดอร์ที่ถูกยกเลิก ({cancelled.length})</h2>
+          <p className="muted">ตามช่วงวันที่ที่เลือก — ไม่มีผลต่อยอดเงิน เก็บไว้ดูสาเหตุและความถี่</p>
+          <div className="scroll-x">
+            <table className="data">
+              <thead><tr><th>วันที่</th><th>สาขา</th><th>ออเดอร์</th><th>ยกเลิกโดย</th><th>สาเหตุ</th></tr></thead>
+              <tbody>
+                {cancelled.map((c, i) => (
+                  <tr key={i}>
+                    <td style={{ textAlign: 'left' }}>{c.businessDate}</td>
+                    <td style={{ textAlign: 'left' }}>{branchName(c.grabStoreId || c.storeName)}</td>
+                    <td style={{ textAlign: 'left' }}>{c.orderCode}</td>
+                    <td style={{ textAlign: 'left' }}>{c.cancelledBy || '—'}</td>
+                    <td style={{ textAlign: 'left' }}>{c.cancelReason || '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
 
       {payouts.length > 0 && (
         <div className="card">
