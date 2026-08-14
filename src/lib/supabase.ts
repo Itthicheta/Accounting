@@ -39,4 +39,7 @@ export type Branch = {
   peak_bank_sub: string | null
   bank_last4: string | null
   is_active: boolean
+  peak_customer: string | null
+  peak_class: string | null
+  tungngern_peak_sub: string | null
 }

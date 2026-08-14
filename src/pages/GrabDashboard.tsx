@@ -3,7 +3,7 @@ import * as XLSX from 'xlsx'
 import { sb, fetchAll, bkkToday } from '../lib/supabase'
 import { parseGrabWorkbook, type GrabParse, type GrabRow, type GrabPayout, type GrabCategory } from '../lib/grabParser'
 import { reconByBranch, isBankSale, type BranchRecon } from '../lib/grabCalc'
-import { saveGrabUploads, type UploadItem } from '../lib/grabIngest'
+import { saveGrabUploads, dbToGrabRow, type UploadItem } from '../lib/grabIngest'
 import { useBranches } from './Shell'
 import ReconTable from './ReconTable'
 import MonthCalendar from './MonthCalendar'
@@ -13,44 +13,6 @@ type OweGrid = Map<string, Map<string, { earned: number; paid: number }>>
 
 type DbRow = Record<string, unknown>
 
-function dbToGrabRow(r: DbRow): GrabRow {
-  return {
-    storeName: (r.store_name as string) ?? '',
-    grabStoreId: (r.grab_store_id as string) ?? '',
-    category: r.category as GrabCategory,
-    subitem: (r.subitem as string) ?? '',
-    status: (r.status as string) ?? '',
-    txnId: (r.txn_id as string) ?? '',
-    relatedTxnId: (r.related_txn_id as string) ?? '',
-    orderCode: (r.order_code as string) ?? '',
-    longOrderId: (r.long_order_id as string) ?? '',
-    orderType: (r.order_type as string) ?? '',
-    paymentMethod: (r.payment_method as string) ?? '',
-    payoutId: (r.payout_id as string) ?? '',
-    grabCreatedAt: (r.grab_created_at as string) ?? null,
-    transferredAt: (r.transferred_at as string) ?? null,
-    businessDate: (r.business_date as string) ?? '',
-    amount: Number(r.amount ?? 0),
-    shopDiscount: Number(r.shop_discount ?? 0),
-    deliveryDiscount: Number(r.delivery_discount ?? 0),
-    netSales: Number(r.net_sales ?? 0),
-    mdr: Number(r.mdr ?? 0),
-    mdrVat: Number(r.mdr_vat ?? 0),
-    grabFee: Number(r.grab_fee ?? 0),
-    marketingFee: Number(r.marketing_fee ?? 0),
-    commDelivery: Number(r.comm_delivery ?? 0),
-    commPlatform: Number(r.comm_platform ?? 0),
-    commOrder: Number(r.comm_order ?? 0),
-    commOther: Number(r.comm_other ?? 0),
-    wht: Number(r.wht ?? 0),
-    total: Number(r.total ?? 0),
-    commVat: Number(r.comm_vat ?? 0),
-    description: (r.description as string) ?? '',
-    cancelReason: (r.cancel_reason as string) ?? '',
-    cancelledBy: (r.cancelled_by as string) ?? '',
-    refundReason: (r.refund_reason as string) ?? '',
-  }
-}
 
 const fmt = (n: number) => n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 

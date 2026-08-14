@@ -1,0 +1,116 @@
+import { useEffect, useState } from 'react'
+import * as XLSX from 'xlsx'
+import { sb, fetchAll, bkkToday } from '../lib/supabase'
+import { reconByBranch, COMPANY } from '../lib/grabCalc'
+import { dbToGrabRow } from '../lib/grabIngest'
+import {
+  buildPeakReceiptLines, peakReceiptWorkbook,
+  type PeakSourceAmounts, type CateringLine, type PeakReceiptLine,
+} from '../lib/peakExport'
+import { useBranches } from './Shell'
+
+type DbRow = Record<string, unknown>
+const fmt = (n: number) => n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+
+export default function PeakExport() {
+  const branches = useBranches()
+  const [day, setDay] = useState(bkkToday(1))
+  const [lines, setLines] = useState<PeakReceiptLine[]>([])
+  const [warnings, setWarnings] = useState<string[]>([])
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+
+  const byStoreId = new Map(branches.filter(b => b.grab_store_id).map(b => [b.grab_store_id!, b.code]))
+
+  async function load() {
+    setBusy(true); setError('')
+    try {
+      const rows = await fetchAll<DbRow>((f, t) => sb.from('grab_rows')
+        .select('*').eq('business_date', day).order('id').range(f, t))
+
+      // reuse the tested reconciliation: per-branch bank (คำนวณ) and ถุงเงิน for the day
+      const grabRows = rows.map(dbToGrabRow).filter(r => r.category !== 'ยกเลิก')
+      const recon = grabRows.length
+        ? reconByBranch({ rows: grabRows, payouts: [], periodStart: day, periodEnd: day, declaredStart: day, declaredEnd: day, warnings: [] })
+        : []
+      const per: PeakSourceAmounts[] = recon
+        .filter(b => b.store !== COMPANY)
+        .map(b => ({
+          branchCode: byStoreId.get(b.grabStoreId) ?? '',
+          grabBank: b.bankPayoutCalc,
+          grabWallet: b.walletReceive,
+        }))
+
+      const { data: events, error: ee } = await sb.from('catering_events')
+        .select('branch_code,name,net_receiving').eq('event_date', day)
+        .in('status', ['reconcile_ready', 'performance_complete'])
+      if (ee) throw ee
+      const catering: CateringLine[] = ((events as DbRow[]) ?? []).map(e => ({
+        branchCode: (e.branch_code as string) ?? null,
+        name: (e.name as string) ?? '',
+        netReceiving: Number(e.net_receiving ?? 0),
+      }))
+
+      const built = buildPeakReceiptLines(day, branches, per, catering)
+      setLines(built.lines)
+      setWarnings(built.warnings)
+    } catch (err) {
+      setError((err as Error).message)
+    }
+    setBusy(false)
+  }
+
+  useEffect(() => { if (branches.length) load() }, [branches.length, day])
+
+  function download() {
+    const wb = peakReceiptWorkbook(lines)
+    XLSX.writeFile(wb, `PEAK_ImportReceipt_${day}.xlsx`)
+  }
+
+  const branchName = (code: string) => branches.find(b => b.code === code)?.name_en
+    ?? branches.find(b => b.peak_customer && lines.some(l => l.customer === b.peak_customer))?.name_en ?? code
+  const total = lines.reduce((s, l) => s + l.amount, 0)
+
+  return (
+    <div>
+      <h1>Peak — Export ใบเสร็จรับเงิน</h1>
+      <p className="muted">สร้างไฟล์ Import_Receipt รายวัน (ทุกสาขาในไฟล์เดียว) จากข้อมูล Grab และ Catering ในระบบ — ช่องทาง POS จะเพิ่มเมื่อเชื่อมข้อมูลครบ</p>
+      <div className="card row">
+        <div><label>วันที่ (วันขาย)</label><input type="date" value={day} onChange={e => setDay(e.target.value)} /></div>
+        <button className="primary" onClick={download} disabled={busy || lines.length === 0}>
+          ดาวน์โหลดไฟล์ Peak ({lines.length} บรรทัด)
+        </button>
+        {busy && <span className="muted">กำลังโหลด…</span>}
+      </div>
+      {error && <div className="banner bad">{error}</div>}
+      {warnings.map((w, i) => <div key={i} className="banner warn">{w}</div>)}
+
+      {lines.length > 0 && (
+        <div className="card scroll-x">
+          <h2>ตัวอย่างไฟล์ ({day})</h2>
+          <table className="data">
+            <thead>
+              <tr><th>ลำดับ</th><th>ลูกค้า</th><th>คำอธิบาย</th><th>จำนวนเงิน (รวม VAT)</th><th>รับชำระโดย</th><th>กลุ่ม</th></tr>
+            </thead>
+            <tbody>
+              {lines.map(l => (
+                <tr key={l.seq}>
+                  <td>{l.seq}</td>
+                  <td style={{ textAlign: 'left' }}>{l.customer}</td>
+                  <td style={{ textAlign: 'left' }}>{l.description}</td>
+                  <td style={{ color: l.amount < 0 ? 'var(--danger)' : 'inherit' }}>{fmt(l.amount)}</td>
+                  <td style={{ textAlign: 'left' }}>{l.paidBy}</td>
+                  <td style={{ textAlign: 'left' }}>{l.classGroup}</td>
+                </tr>
+              ))}
+              <tr className="total"><td colSpan={3} style={{ textAlign: 'left' }}>รวม</td><td>{fmt(total)}</td><td colSpan={2}></td></tr>
+            </tbody>
+          </table>
+        </div>
+      )}
+      {lines.length === 0 && !busy && !error && (
+        <div className="banner warn">ไม่มีข้อมูลรายรับสำหรับวันนี้ — อัปโหลดรายงาน Grab หรือบันทึก Catering ก่อน</div>
+      )}
+    </div>
+  )
+}

@@ -6,6 +6,7 @@ import Login from './pages/Login'
 import Shell from './pages/Shell'
 import Home from './pages/Home'
 import GrabDashboard from './pages/GrabDashboard'
+import PeakExport from './pages/PeakExport'
 import CateringList from './pages/CateringList'
 import CateringForm from './pages/CateringForm'
 
@@ -30,6 +31,7 @@ export default function App() {
       <Route element={<Shell />}>
         <Route path="/" element={<Home />} />
         <Route path="/grab" element={<GrabDashboard />} />
+        <Route path="/peak" element={<PeakExport />} />
         <Route path="/catering" element={<CateringList />} />
         <Route path="/catering/new" element={<CateringForm />} />
         <Route path="/catering/:id" element={<CateringForm />} />
