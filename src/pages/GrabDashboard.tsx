@@ -134,11 +134,16 @@ export default function GrabDashboard() {
         .select('*').gte('business_date', f0).lte('business_date', t0)
         .order('location_id').range(f2, t2))
       const posAgg = buildPosLines(posRows, byLocation)
+      // compare only days the POS sync actually covers for each branch —
+      // otherwise missing sync days masquerade as staff keying errors
+      const posDays = new Set(posRows.map(r => `${byLocation.get(r.location_id)}|${r.business_date}`))
       const grabBillsByBranch = new Map<string, number>()
       for (const r of grabRows) {
         if (r.category !== 'ชำระเงิน') continue
         const code = byStoreId.get(r.grabStoreId)?.code ?? ''
-        if (code) grabBillsByBranch.set(code, (grabBillsByBranch.get(code) ?? 0) + 1)
+        if (code && posDays.has(`${code}|${r.businessDate}`)) {
+          grabBillsByBranch.set(code, (grabBillsByBranch.get(code) ?? 0) + 1)
+        }
       }
       const posCovered = new Set(posRows.map(r => byLocation.get(r.location_id)).filter(Boolean))
       const codes = [...new Set([...posAgg.grabPosBills.keys(), ...grabBillsByBranch.keys()])].sort()
