@@ -19,7 +19,7 @@ export default function PeakExport() {
   const [warnings, setWarnings] = useState<string[]>([])
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
-  const [billRecon, setBillRecon] = useState<{ branch: string; pos: number; grab: number }[]>([])
+  const [billRecon, setBillRecon] = useState<{ branch: string; pos: number; grab: number; hasPos: boolean }[]>([])
 
   const byStoreId = new Map(branches.filter(b => b.grab_store_id).map(b => [b.grab_store_id!, b.code]))
   const byLocation = new Map(branches.filter(b => b.pos_location_id).map(b => [b.pos_location_id!, b.code]))
@@ -55,11 +55,13 @@ export default function PeakExport() {
         const code = byStoreId.get(r.grabStoreId) ?? ''
         if (code) grabBillsByBranch.set(code, (grabBillsByBranch.get(code) ?? 0) + 1)
       }
+      const posCoveredBranches = new Set(posRows.map(r => byLocation.get(r.location_id)).filter(Boolean))
       const branchCodes = [...new Set([...pos.grabPosBills.keys(), ...grabBillsByBranch.keys()])].sort()
       setBillRecon(branchCodes.map(c => ({
         branch: c,
         pos: pos.grabPosBills.get(c) ?? 0,
         grab: grabBillsByBranch.get(c) ?? 0,
+        hasPos: posCoveredBranches.has(c),
       })))
 
       const { data: events, error: ee } = await sb.from('catering_events')
@@ -95,7 +97,7 @@ export default function PeakExport() {
   return (
     <div>
       <h1>Peak — Export ใบเสร็จรับเงิน</h1>
-      <p className="muted">สร้างไฟล์ Import_Receipt รายวัน (ทุกสาขาในไฟล์เดียว) จากข้อมูล Grab และ Catering ในระบบ — ช่องทาง POS จะเพิ่มเมื่อเชื่อมข้อมูลครบ</p>
+      <p className="muted">สร้างไฟล์ Import_Receipt รายวัน (ทุกสาขาในไฟล์เดียว) จากข้อมูล POS (dine-in + take-away รวมกันตามช่องทางจ่ายเงิน) + Grab + Catering — สาขาที่ POS ยังไม่ sync จะมีเฉพาะบรรทัด Grab</p>
       <div className="card row">
         <div><label>วันที่ (วันขาย)</label><input type="date" value={day} onChange={e => setDay(e.target.value)} /></div>
         <button className="primary" onClick={download} disabled={busy || lines.length === 0}>
@@ -143,9 +145,11 @@ export default function PeakExport() {
                     <td>{r.pos}</td>
                     <td>{r.grab}</td>
                     <td style={{ textAlign: 'left' }}>
-                      {r.pos === r.grab
-                        ? <span className="chip ok">✓ ตรงกัน</span>
-                        : <span className="chip bad">✗ ต่าง {Math.abs(r.pos - r.grab)} บิล{r.grab === 0 ? ' (ยังไม่อัปโหลดไฟล์ Grab?)' : r.pos > r.grab ? ' — POS เกิน อาจคีย์ซ้ำ' : ' — POS ขาด อาจลืมคีย์'}</span>}
+                      {!r.hasPos
+                        ? <span className="chip warn">ยังไม่มีข้อมูล POS สาขานี้ (sync ยังไม่ครอบคลุม)</span>
+                        : r.pos === r.grab
+                          ? <span className="chip ok">✓ ตรงกัน</span>
+                          : <span className="chip bad">✗ ต่าง {Math.abs(r.pos - r.grab)} บิล{r.grab === 0 ? ' (ยังไม่อัปโหลดไฟล์ Grab?)' : r.pos > r.grab ? ' — POS เกิน อาจคีย์ซ้ำ' : ' — POS ขาด อาจลืมคีย์'}</span>}
                     </td>
                   </tr>
                 ))}
