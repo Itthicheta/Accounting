@@ -91,6 +91,19 @@ export default function GrabDashboard() {
         ? await sb.from('grab_payouts').select('*').in('payout_id', [...payoutIds])
         : { data: [], error: null }
       if (p2e) throw p2e
+      // cross-date payout check: a payout batch can include rows from other days,
+      // so verify each payout against ALL its rows in the DB, not just this date range
+      const { data: allPayoutRows, error: are } = payoutIds.size
+        ? await sb.from('grab_rows').select('payout_id,total').in('payout_id', [...payoutIds])
+        : { data: [], error: null }
+      if (are) throw are
+      const payoutRowSum = new Map<string, number>()
+      for (const r of (allPayoutRows as DbRow[]) ?? []) {
+        const pid = r.payout_id as string
+        payoutRowSum.set(pid, (payoutRowSum.get(pid) ?? 0) + Number(r.total ?? 0))
+      }
+      const payoutAmount = new Map<string, number>()
+      for (const p of (pos2 as DbRow[]) ?? []) payoutAmount.set(p.payout_id as string, Number(p.amount ?? 0))
 
       const parse: GrabParse = {
         rows: grabRows,
@@ -107,7 +120,27 @@ export default function GrabDashboard() {
         periodStart: from, periodEnd: to, warnings: [],
       }
       setCount(grabRows.length)
-      setRecon(grabRows.length ? reconByBranch(parse) : [])
+      const recons = grabRows.length ? reconByBranch(parse) : []
+      // override payout match: ✓ when every payout of the branch balances across ALL its DB rows
+      const pidsByStore = new Map<string, Set<string>>()
+      for (const r of grabRows) {
+        if (!r.payoutId) continue
+        const key = r.grabStoreId || r.storeName
+        if (!pidsByStore.has(key)) pidsByStore.set(key, new Set())
+        pidsByStore.get(key)!.add(r.payoutId)
+      }
+      const allPids = new Set([...pidsByStore.values()].flatMap(s => [...s]))
+      for (const b of recons) {
+        const pids = b.store === '__company__' ? allPids : (pidsByStore.get(b.grabStoreId || b.store) ?? new Set<string>())
+        if (pids.size === 0) { b.payoutMatches = null; continue }
+        let ok = true
+        for (const pid of pids) {
+          const amt = payoutAmount.get(pid)
+          if (amt == null || Math.abs((payoutRowSum.get(pid) ?? 0) - amt) > 0.01) { ok = false; break }
+        }
+        b.payoutMatches = ok
+      }
+      setRecon(recons)
       setPayouts((pos as DbRow[]) ?? [])
     } catch (err) {
       setError((err as Error).message)

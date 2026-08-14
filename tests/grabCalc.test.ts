@@ -26,7 +26,7 @@ describe('reconByBranch', () => {
       // TCT wallet order: 139 all to wallet
       row({ amount: 139, netSales: 139, total: 139 }),
       // TCT commission adjustment: -13.39 from bank payout
-      row({ category: 'การปรับรายได้', payoutId: 'P1', amount: -13.39, total: -13.39 }),
+      row({ category: 'การปรับรายได้', subitem: 'Commission for Govt Campaign (taxable)', payoutId: 'P1', amount: -13.39, total: -13.39 }),
       // ads manual: -115.32 from bank payout
       row({ category: 'โฆษณา', payoutId: 'P1', amount: -107.76, total: -115.32, description: 'Manual Keywords - 2026-08-11' }),
     ], [{ payoutId: 'P1', storeName: 'Branch A', grabStoreId: 'store-a', amount: 23.44, transferredAt: null, bankStmtRef: '', bankName: '', bankLast4: '1234' }])
@@ -71,5 +71,21 @@ describe('reconByBranch', () => {
   it('pctOfNetSales formats', () => {
     const out = reconByBranch(parse([row({ payoutId: 'P1', amount: 200, netSales: 200, commPlatform: -30, total: 170 })]))
     expect(pctOfNetSales(out[0].commPlatform, out[0])).toBe('15.0%')
+  })
+})
+
+describe('adjOther (อื่นๆ income adjustments)', () => {
+  it('separates non-TCT adjustments and includes them in bank payout', () => {
+    const p = parse([
+      row({ payoutId: 'P1', amount: 200, netSales: 200, total: 200 }),
+      row({ category: 'การปรับรายได้', subitem: 'อื่นๆ', payoutId: 'P1', amount: 48, total: 48 }),
+      row({ category: 'การปรับรายได้', subitem: 'Commission for Govt Campaign (taxable)', payoutId: 'P1', amount: -15.31, total: -15.31 }),
+    ])
+    const out = reconByBranch(p)
+    const b = out[0]
+    expect(b.adjOther).toBeCloseTo(48, 2)
+    expect(b.tctCommission).toBeCloseTo(-15.31, 2)
+    expect(b.bankPayoutCalc).toBeCloseTo(200 + 48 - 15.31, 2)
+    expect(b.totalCosts).toBeCloseTo(15.31 - 48, 2)
   })
 })

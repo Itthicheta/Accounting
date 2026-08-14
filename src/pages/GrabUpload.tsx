@@ -56,6 +56,8 @@ export default function GrabUpload() {
   const unknownStores = parse
     ? [...new Set(parse.rows.filter(r => r.grabStoreId && !byStoreId.has(r.grabStoreId)).map(r => r.storeName))]
     : []
+  // unknown categories mean the totals would be wrong — block saving, don't just warn
+  const hasUnknownCategory = parse?.warnings.some(w => w.includes('หมวดหมู่ไม่รู้จัก')) ?? false
 
   async function onFile(e: React.ChangeEvent<HTMLInputElement>) {
     const f = e.target.files?.[0]
@@ -130,9 +132,10 @@ export default function GrabUpload() {
           <h2>ผลกระทบยอด {parse.periodStart}{parse.periodEnd !== parse.periodStart ? ` ถึง ${parse.periodEnd}` : ''}</h2>
           <ReconTable recon={recon} branchName={branchName} />
           <div style={{ marginTop: 14 }}>
-            <button className="primary" onClick={save} disabled={saving || unknownStores.length > 0}>
+            <button className="primary" onClick={save} disabled={saving || unknownStores.length > 0 || hasUnknownCategory}>
               {saving ? 'กำลังบันทึก…' : 'บันทึกเข้าระบบ'}
             </button>
+            {hasUnknownCategory && <span className="muted" style={{ marginLeft: 10 }}>บันทึกไม่ได้ — มีหมวดหมู่ที่ระบบยังไม่รู้จัก (ดูคำเตือนด้านบน) ต้องอัปเดตระบบก่อน</span>}
           </div>
         </div>
       )}

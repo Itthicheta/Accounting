@@ -38,6 +38,7 @@ export default function ReconTable({ recon, branchName }: {
           <tr><td>− ค่าธรรมเนียมการตลาด</td>{cols.map((b, i) => <CostCell key={i} v={b.marketingFee} b={b} />)}</tr>
           <tr><td>− MDR / ค่าธรรมเนียม / WHT</td>{cols.map((b, i) => <CostCell key={i} v={b.mdrTotal + b.wht} b={b} />)}</tr>
           <tr><td>− ค่าคอมมิชชัน TCT</td>{cols.map((b, i) => <CostCell key={i} v={b.tctCommission} b={b} />)}</tr>
+          <tr><td>± การปรับรายได้อื่นๆ</td>{cols.map((b, i) => <CostCell key={i} v={b.adjOther} b={b} />)}</tr>
           <tr><td>− โฆษณา manual keywords</td>{cols.map((b, i) => <CostCell key={i} v={b.adsManual} b={b} />)}</tr>
           <tr><td>− โฆษณา automatic keywords</td>{cols.map((b, i) => <CostCell key={i} v={b.adsAuto} b={b} />)}</tr>
           <tr className="total"><td>รวมต้นทุน (% ของยอดขายสุทธิ)</td>{cols.map((b, i) => (
@@ -59,6 +60,18 @@ export default function ReconTable({ recon, branchName }: {
           <tr><td className="muted">จำนวนออเดอร์ (ธนาคาร / ถุงเงิน)</td>{cols.map((b, i) => <td key={i} className="muted">{b.bankOrders} / {b.walletOrders}</td>)}</tr>
         </tbody>
       </table>
+      {cols.some(b => b.payoutMatches === false) && (
+        <p className="muted" style={{ marginTop: 8 }}>
+          ✗ = ผลรวมแถวในช่วงนี้ไม่เท่ายอดโอนจริงของ Grab — รอบโอนหนึ่งอาจรวมรายการจากวันอื่น
+          (อัปโหลดไฟล์วันก่อน/หลังเพิ่มเพื่อให้ครบรอบโอน) ยอดที่เข้าธนาคารจริงคือตัวเลขหลัง ✗
+        </p>
+      )}
+      {cols.some(b => b.adjOther !== 0) && (
+        <p className="muted" style={{ marginTop: 4 }}>
+          ± การปรับรายได้อื่นๆ = รายการที่ Grab จ่ายชดเชย/หักเพิ่มผ่านรอบโอนธนาคาร (เช่น เงินของออเดอร์ TCT
+          ที่ย้ายมาจ่ายทางธนาคารแทนถุงเงิน) — ยอดเข้าถุงเงินจริงอาจต่ำกว่าตัวเลข TCT ในตารางเท่าจำนวนนี้
+        </p>
+      )}
     </div>
   )
 }

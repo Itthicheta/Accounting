@@ -17,6 +17,7 @@ export type BranchRecon = {
   wht: number
   orderNets: number
   tctCommission: number
+  adjOther: number
   adsManual: number
   adsAuto: number
   adsTotal: number
@@ -41,7 +42,7 @@ function blank(store: string, grabStoreId: string): BranchRecon {
     grossBank: 0, discBank: 0, netSalesBank: 0,
     commPlatform: 0, commOrder: 0, commDelivery: 0, commOther: 0,
     marketingFee: 0, mdrTotal: 0, wht: 0, orderNets: 0,
-    tctCommission: 0, adsManual: 0, adsAuto: 0, adsTotal: 0,
+    tctCommission: 0, adjOther: 0, adsManual: 0, adsAuto: 0, adsTotal: 0,
     bankPayoutCalc: 0, payoutSheetAmount: null, payoutMatches: null,
     grossWallet: 0, discWallet: 0, walletReceive: 0,
     totalGross: 0, totalNetSales: 0, totalCosts: 0, netReceiving: 0,
@@ -71,7 +72,10 @@ function addRow(b: BranchRecon, r: GrabRow): void {
       b.walletReceive += r.total
     }
   } else if (r.category === 'การปรับรายได้') {
-    b.tctCommission += r.total
+    // TCT commission clawbacks vs other income adjustments (e.g. 'อื่นๆ' credits that
+    // shift a TCT order's money into the bank payout)
+    if (r.subitem.startsWith('Commission for Govt Campaign')) b.tctCommission += r.total
+    else b.adjOther += r.total
   } else if (r.category === 'โฆษณา') {
     if (r.description.startsWith('Manual')) b.adsManual += r.total
     else if (r.description.startsWith('Automatic')) b.adsAuto += r.total
@@ -81,14 +85,15 @@ function addRow(b: BranchRecon, r: GrabRow): void {
 }
 
 function finalize(b: BranchRecon, payoutTotal: number | null): void {
-  b.bankPayoutCalc = b.orderNets + b.tctCommission + b.adsTotal
+  b.bankPayoutCalc = b.orderNets + b.tctCommission + b.adjOther + b.adsTotal
   b.payoutSheetAmount = payoutTotal
   b.payoutMatches = payoutTotal == null ? null : Math.abs(b.bankPayoutCalc - payoutTotal) <= 0.01
   b.totalGross = b.grossBank + b.grossWallet
   b.totalNetSales = b.netSalesBank + b.walletReceive - 0 // wallet receive == wallet net sales
   // deduction columns are negative in the source; report total costs as a positive magnitude
+  // (adjOther is usually a credit, so it reduces total costs)
   b.totalCosts = -(b.commPlatform + b.commOrder + b.commDelivery + b.commOther +
-    b.marketingFee + b.mdrTotal + b.wht + b.tctCommission + b.adsTotal)
+    b.marketingFee + b.mdrTotal + b.wht + b.tctCommission + b.adjOther + b.adsTotal)
   b.netReceiving = b.bankPayoutCalc + b.walletReceive
 }
 
@@ -120,6 +125,7 @@ export function reconByBranch(p: GrabParse): BranchRecon[] {
     company.commDelivery += b.commDelivery; company.commOther += b.commOther
     company.marketingFee += b.marketingFee; company.mdrTotal += b.mdrTotal; company.wht += b.wht
     company.orderNets += b.orderNets; company.tctCommission += b.tctCommission
+    company.adjOther += b.adjOther
     company.adsManual += b.adsManual; company.adsAuto += b.adsAuto; company.adsTotal += b.adsTotal
     company.grossWallet += b.grossWallet; company.discWallet += b.discWallet; company.walletReceive += b.walletReceive
     companyPayout += b.payoutSheetAmount ?? 0
