@@ -23,6 +23,7 @@ export default function Shell() {
           <NavLink to="/grab">Grab — Dashboard</NavLink>
           <NavLink to="/catering">Catering / Event</NavLink>
           <NavLink to="/peak">Peak — Export</NavLink>
+          <NavLink to="/config">ตั้งค่า</NavLink>
           <button className="ghost" style={{ marginTop: 24 }} onClick={() => sb.auth.signOut()}>ออกจากระบบ</button>
         </nav>
         <main className="main">

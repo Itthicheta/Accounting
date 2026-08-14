@@ -97,7 +97,15 @@ export type PeakSourceAmounts = {
 
 export type CateringLine = { branchCode: string | null; name: string; netReceiving: number }
 
-export const REVENUE_ACCOUNT = '410101'
+export type PeakConfig = {
+  revenueAccount: string   // K
+  vatRate: number          // P
+  priceType: number        // I (1 แยกภาษี, 2 รวมภาษี, 3 ไม่มีภาษี)
+  taxInvoice: number       // H (1 ออก, 2 ไม่ออก)
+}
+export const DEFAULT_PEAK_CONFIG: PeakConfig = {
+  revenueAccount: '410101', vatRate: 0.07, priceType: 2, taxInvoice: 1,
+}
 
 export function toDocDate(isoDate: string): number {
   return Number(isoDate.replaceAll('-', ''))
@@ -113,6 +121,7 @@ export function buildPeakReceiptLines(
   grab: PeakSourceAmounts[],
   catering: CateringLine[],
   posLines: PosLine[] = [],
+  config: PeakConfig = DEFAULT_PEAK_CONFIG,
 ): { lines: PeakReceiptLine[]; warnings: string[] } {
   const lines: PeakReceiptLine[] = []
   const warnings: string[] = []
@@ -124,7 +133,7 @@ export function buildPeakReceiptLines(
     lines.push({
       seq: seq++, docDate,
       customer: b.peak_customer ?? '',
-      account: REVENUE_ACCOUNT,
+      account: config.revenueAccount,
       description,
       amount: Math.round(amount * 100) / 100,
       paidBy,
@@ -188,14 +197,14 @@ const HEADERS = [
 ]
 
 /** Serialize lines into the exact Import_Receipt workbook Peak expects. */
-export function peakReceiptWorkbook(lines: PeakReceiptLine[]): XLSX.WorkBook {
+export function peakReceiptWorkbook(lines: PeakReceiptLine[], config: PeakConfig = DEFAULT_PEAK_CONFIG): XLSX.WorkBook {
   const aoa: unknown[][] = [HEADERS]
   for (const l of lines) {
     aoa.push([
       l.seq, l.docDate, '', '', l.customer,
-      '', '', 1, 2,
+      '', '', config.taxInvoice, config.priceType,
       '', l.account, l.description, 1, l.amount,
-      '', 0.07, '', l.paidBy,
+      '', config.vatRate, '', l.paidBy,
       l.note, l.classGroup,
     ])
   }

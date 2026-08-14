@@ -103,3 +103,18 @@ describe('buildPosLines (Point rules 2026-08-15, real gaysorn 13/08 shape)', () 
     expect(qr.paidBy).toBe('BSV002')
   })
 })
+
+describe('PeakConfig', () => {
+  it('workbook uses configured H/I/P/K values', () => {
+    const gaysorn: Branch = { code: 'gaysorn', name_en: 'Gaysorn', name_th: null, grab_store_id: 'sa', peak_bank_sub: 'BSV002', bank_last4: null, is_active: true, peak_customer: 'C00065', peak_class: '00002', tungngern_peak_sub: null, pos_location_id: 'gaysorn' }
+    const cfg = { revenueAccount: '410199', vatRate: 0, priceType: 3, taxInvoice: 2 }
+    const { lines } = buildPeakReceiptLines('2026-08-13', [gaysorn], [{ branchCode: 'gaysorn', grabBank: 100, grabWallet: 0 }], [], [], cfg)
+    expect(lines[0].account).toBe('410199')
+    const wb = peakReceiptWorkbook(lines, cfg)
+    const aoa: unknown[][] = XLSX.utils.sheet_to_json(wb.Sheets['Import_Receipt'], { header: 1 })
+    expect(aoa[1][7]).toBe(2)   // H
+    expect(aoa[1][8]).toBe(3)   // I
+    expect(aoa[1][10]).toBe('410199')
+    expect(aoa[1][15]).toBe(0)  // P
+  })
+})

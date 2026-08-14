@@ -4,8 +4,8 @@ import { sb, fetchAll, bkkToday } from '../lib/supabase'
 import { reconByBranch, COMPANY } from '../lib/grabCalc'
 import { dbToGrabRow } from '../lib/grabIngest'
 import {
-  buildPeakReceiptLines, buildPosLines, peakReceiptWorkbook,
-  type PeakSourceAmounts, type CateringLine, type PeakReceiptLine, type PosViewRow,
+  buildPeakReceiptLines, buildPosLines, peakReceiptWorkbook, DEFAULT_PEAK_CONFIG,
+  type PeakConfig, type PeakSourceAmounts, type CateringLine, type PeakReceiptLine, type PosViewRow,
 } from '../lib/peakExport'
 import { useBranches } from './Shell'
 
@@ -20,6 +20,7 @@ export default function PeakExport() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [billRecon, setBillRecon] = useState<{ branch: string; pos: number; grab: number; hasPos: boolean }[]>([])
+  const [config, setConfig] = useState<PeakConfig>(DEFAULT_PEAK_CONFIG)
 
   const byStoreId = new Map(branches.filter(b => b.grab_store_id).map(b => [b.grab_store_id!, b.code]))
   const byLocation = new Map(branches.filter(b => b.pos_location_id).map(b => [b.pos_location_id!, b.code]))
@@ -27,6 +28,16 @@ export default function PeakExport() {
   async function load() {
     setBusy(true); setError('')
     try {
+      const { data: st } = await sb.from('app_settings').select('*')
+      const smap: Record<string, string> = {}
+      for (const r of (st as { key: string; value: string }[]) ?? []) smap[r.key] = r.value
+      const cfg: PeakConfig = {
+        revenueAccount: smap.peak_revenue_account ?? DEFAULT_PEAK_CONFIG.revenueAccount,
+        vatRate: Number(smap.peak_vat_rate ?? DEFAULT_PEAK_CONFIG.vatRate),
+        priceType: Number(smap.peak_price_type ?? DEFAULT_PEAK_CONFIG.priceType),
+        taxInvoice: Number(smap.peak_tax_invoice ?? DEFAULT_PEAK_CONFIG.taxInvoice),
+      }
+      setConfig(cfg)
       const rows = await fetchAll<DbRow>((f, t) => sb.from('grab_rows')
         .select('*').eq('business_date', day).order('id').range(f, t))
 
@@ -74,7 +85,7 @@ export default function PeakExport() {
         netReceiving: Number(e.net_receiving ?? 0),
       }))
 
-      const built = buildPeakReceiptLines(day, branches, per, catering, pos.posLines)
+      const built = buildPeakReceiptLines(day, branches, per, catering, pos.posLines, cfg)
       setLines(built.lines)
       setWarnings([...pos.warnings, ...built.warnings])
     } catch (err) {
@@ -86,7 +97,7 @@ export default function PeakExport() {
   useEffect(() => { if (branches.length) load() }, [branches.length, day])
 
   function download() {
-    const wb = peakReceiptWorkbook(lines)
+    const wb = peakReceiptWorkbook(lines, config)
     XLSX.writeFile(wb, `PEAK_ImportReceipt_${day}.xlsx`)
   }
 
