@@ -46,13 +46,13 @@ export default function ReconTable({ recon, branchName }: {
           ))}</tr>
           <tr className="total"><td>= ยอดรับสุทธิ</td>{cols.map((b, i) => <td key={i}>{fmt(b.netReceiving)}</td>)}</tr>
 
-          <tr className="section"><td colSpan={cols.length + 1}>Settlement — เงินเข้าที่ไหน</td></tr>
-          <tr><td>โอนเข้าธนาคาร {' '}
-            </td>{cols.map((b, i) => (
+          <tr className="section"><td colSpan={cols.length + 1}>Settlement — คำนวณจากรายการชำระเงิน แล้วเทียบยอดโอนจริง</td></tr>
+          <tr><td>ธนาคาร (คำนวณจากรายการ)</td>{cols.map((b, i) => <td key={i}>{fmt(b.bankPayoutCalc)}</td>)}</tr>
+          <tr><td>ยอดโอนจริง (ชีทการจ่ายรายได้)</td>{cols.map((b, i) => (
             <td key={i}>
-              {fmt(b.bankPayoutCalc)}
-              {b.payoutMatches === true && <span className="pct" style={{ color: 'var(--accent)' }}>✓</span>}
-              {b.payoutMatches === false && <span className="pct" style={{ color: 'var(--danger)' }}>✗ ไม่ตรง {b.payoutSheetAmount != null ? fmt(b.payoutSheetAmount) : ''}</span>}
+              {b.payoutSheetAmount != null ? fmt(b.payoutSheetAmount) : '—'}
+              {b.payoutMatches === true && <span className="pct" style={{ color: 'var(--accent)' }}>✓ ตรง</span>}
+              {b.payoutMatches === false && <span className="pct" style={{ color: 'var(--danger)' }}>✗ ต่าง {fmt(Math.abs(b.bankPayoutCalc - (b.payoutSheetAmount ?? 0)))}</span>}
             </td>
           ))}</tr>
           <tr><td className="muted">ในยอดธนาคาร: เงิน TCT ที่ย้ายมา (อื่นๆ)</td>{cols.map((b, i) => <td key={i} className="muted">{b.walletShift !== 0 ? fmt(b.walletShift) : '—'}</td>)}</tr>

@@ -94,7 +94,7 @@ describe('walletShift (อื่นๆ tied to TCT orders)', () => {
   it('moves money from wallet to bank without double counting', () => {
     const p = parse([
       row({ orderCode: 'GF-1', amount: 159, netSales: 159, total: 159 }), // TCT sale
-      row({ category: 'การปรับรายได้', subitem: 'อื่นๆ', orderCode: 'GF-1', payoutId: 'P1', amount: 48, total: 48 }),
+      row({ category: 'การปรับรายได้', subitem: 'อื่นๆ', orderCode: 'GF-1', payoutId: 'P1', amount: 48, total: 48, description: 'TH6040 Refund Discount | GF-1 | 2026-08-10' }),
       row({ payoutId: 'P1', amount: 100, netSales: 100, total: 100 }),    // regular order
     ])
     const b = reconByBranch(p)[0]
@@ -105,5 +105,39 @@ describe('walletShift (อื่นๆ tied to TCT orders)', () => {
     expect(b.netReceiving).toBeCloseTo(259, 2)           // = 159 + 100, no double count
     expect(b.totalNetSales).toBeCloseTo(259, 2)
     expect(b.totalCosts).toBeCloseTo(0, 2)               // a shift is not a cost
+  })
+})
+
+describe('refund rule edge cases', () => {
+  it('refund on a bank-stream order stays adjOther (no wallet to reduce)', () => {
+    const p = parse([
+      row({ orderCode: 'GF-9', payoutId: 'P1', amount: 100, netSales: 100, total: 100 }), // bank order
+      row({ category: 'การปรับรายได้', subitem: 'อื่นๆ', orderCode: 'GF-9', payoutId: 'P1', amount: 30, total: 30, description: 'TH6040 Refund Discount | GF-9 | 2026-08-10' }),
+    ])
+    const b = reconByBranch(p)[0]
+    expect(b.walletShift).toBe(0)
+    expect(b.adjOther).toBeCloseTo(30, 2)
+    expect(b.walletReceive).toBe(0)
+    expect(b.bankPayoutCalc).toBeCloseTo(130, 2)
+  })
+
+  it('non-refund อื่นๆ never shifts the wallet, even on a TCT order', () => {
+    const p = parse([
+      row({ orderCode: 'GF-1', amount: 159, netSales: 159, total: 159 }), // TCT sale
+      row({ category: 'การปรับรายได้', subitem: 'อื่นๆ', orderCode: 'GF-1', payoutId: 'P1', amount: 20, total: 20, description: 'Goodwill compensation' }),
+    ])
+    const b = reconByBranch(p)[0]
+    expect(b.walletShift).toBe(0)
+    expect(b.adjOther).toBeCloseTo(20, 2)
+    expect(b.walletReceive).toBeCloseTo(159, 2)
+  })
+
+  it('cross-date refund (TCT order not in this file) still shifts', () => {
+    const p = parse([
+      row({ category: 'การปรับรายได้', subitem: 'อื่นๆ', orderCode: 'GF-77', payoutId: 'P1', amount: 25, total: 25, description: 'TH6040 Refund Discount | GF-77 | 2026-08-09' }),
+    ])
+    const b = reconByBranch(p)[0]
+    expect(b.walletShift).toBeCloseTo(25, 2)
+    expect(b.walletReceive).toBeCloseTo(-25, 2)
   })
 })

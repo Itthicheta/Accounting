@@ -50,7 +50,7 @@ function blank(store: string, grabStoreId: string): BranchRecon {
   }
 }
 
-function addRow(b: BranchRecon, r: GrabRow, tctCodes: Set<string>): void {
+function addRow(b: BranchRecon, r: GrabRow, tctCodes: Set<string>, bankCodes: Set<string>): void {
   if (r.category === 'ชำระเงิน') {
     const disc = r.shopDiscount + r.deliveryDiscount
     if (r.payoutId) {
@@ -75,9 +75,11 @@ function addRow(b: BranchRecon, r: GrabRow, tctCodes: Set<string>): void {
   } else if (r.category === 'การปรับรายได้') {
     if (r.subitem.startsWith('Commission for Govt Campaign')) {
       b.tctCommission += r.total
-    } else if (r.orderCode && tctCodes.has(r.orderCode)) {
-      // 'อื่นๆ' tied to a TCT order = that order's money paid via the bank payout
-      // instead of ถุงเงิน — a stream shift, not income and not a cost
+    } else if (/refund/i.test(r.description) && !(r.orderCode && bankCodes.has(r.orderCode))) {
+      // Point's rule (2026-08-14): อื่นๆ whose คำอธิบาย says "Refund" is paid via the
+      // bank payout INSTEAD of ถุงเงิน — a stream shift, not income and not a cost.
+      // (If the refund references a bank-stream order there is no wallet to reduce,
+      // so it falls through to adjOther below.)
       b.walletShift += r.total
     } else {
       b.adjOther += r.total
@@ -108,19 +110,21 @@ function finalize(b: BranchRecon, payoutTotal: number | null): void {
 /** Aggregate parsed grab rows per store; company row (store = COMPANY) appended last. */
 export function reconByBranch(p: GrabParse): BranchRecon[] {
   const byStore = new Map<string, BranchRecon>()
-  // first pass: which order codes are TCT (wallet) sales, per store
+  // first pass: classify order codes per store (TCT/wallet vs bank sales)
   const tctCodesByStore = new Map<string, Set<string>>()
+  const bankCodesByStore = new Map<string, Set<string>>()
   for (const r of p.rows) {
-    if (r.category === 'ชำระเงิน' && !r.payoutId && r.orderCode) {
+    if (r.category === 'ชำระเงิน' && r.orderCode) {
       const key = r.grabStoreId || r.storeName
-      if (!tctCodesByStore.has(key)) tctCodesByStore.set(key, new Set())
-      tctCodesByStore.get(key)!.add(r.orderCode)
+      const m = r.payoutId ? bankCodesByStore : tctCodesByStore
+      if (!m.has(key)) m.set(key, new Set())
+      m.get(key)!.add(r.orderCode)
     }
   }
   for (const r of p.rows) {
     const key = r.grabStoreId || r.storeName
     if (!byStore.has(key)) byStore.set(key, blank(r.storeName, r.grabStoreId))
-    addRow(byStore.get(key)!, r, tctCodesByStore.get(key) ?? new Set())
+    addRow(byStore.get(key)!, r, tctCodesByStore.get(key) ?? new Set(), bankCodesByStore.get(key) ?? new Set())
   }
   const payoutByStore = new Map<string, number>()
   for (const po of p.payouts) {
