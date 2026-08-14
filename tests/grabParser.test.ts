@@ -138,3 +138,33 @@ describe('parseGrabWorkbook', () => {
     expect(p.warnings.some(w => w.includes('GF-100'))).toBe(true)
   })
 })
+
+describe('cancelled orders (blank category)', () => {
+  it('keeps them as ยกเลิก with zero money, no warning', () => {
+    const wb = makeWb()
+    const cancelled = txnRow({
+      'หมวดหมู่': '', 'สถานะ': 'ยกเลิก', 'ประเภทคำสั่งซื้อ': 'Not Paid',
+      'รหัสคำสั่งซื้อสั้น': 'GF-804', 'รหัสคำสั่งซื้อยาว': 'cancel-long-1',
+      'ทั้งหมด': 0, 'สาเหตุที่ยกเลิก': 'WAITED_TOO_LONG', 'ยกเลิกโดย': 'ลูกค้า',
+    })
+    XLSX.utils.sheet_add_aoa(wb.Sheets['รายการชำระเงิน'], [cancelled], { origin: -1 })
+    const p = parseGrabWorkbook(wb)
+    expect(p.warnings).toEqual([])
+    const c = p.rows.find(r => r.orderCode === 'GF-804')!
+    expect(c.category).toBe('ยกเลิก')
+    expect(c.total).toBe(0)
+    expect(c.cancelReason).toBe('WAITED_TOO_LONG')
+    expect(c.cancelledBy).toBe('ลูกค้า')
+  })
+
+  it('still blocks blank category rows that carry money', () => {
+    const wb = makeWb()
+    const weird = txnRow({
+      'หมวดหมู่': '', 'สถานะ': 'ยกเลิก', 'รหัสคำสั่งซื้อสั้น': 'GF-999',
+      'รหัสคำสั่งซื้อยาว': 'cancel-long-2', 'ทั้งหมด': 55,
+    })
+    XLSX.utils.sheet_add_aoa(wb.Sheets['รายการชำระเงิน'], [weird], { origin: -1 })
+    const p = parseGrabWorkbook(wb)
+    expect(p.warnings.some(w => w.includes('หมวดหมู่ไม่รู้จัก'))).toBe(true)
+  })
+})

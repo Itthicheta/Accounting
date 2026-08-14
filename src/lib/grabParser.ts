@@ -1,6 +1,6 @@
 import * as XLSX from 'xlsx'
 
-export type GrabCategory = 'ชำระเงิน' | 'การปรับรายได้' | 'โฆษณา'
+export type GrabCategory = 'ชำระเงิน' | 'การปรับรายได้' | 'โฆษณา' | 'ยกเลิก'
 
 export type GrabRow = {
   storeName: string
@@ -206,10 +206,19 @@ export function parseGrabWorkbook(wb: XLSX.WorkBook): GrabParse {
   for (let i = 1; i < aoa.length; i++) {
     const r = aoa[i]
     if (!r || r.length === 0 || r[0] == null || r[0] === '') continue
-    const category = str(g(r, H.category)) as GrabCategory
+    let category = str(g(r, H.category)) as GrabCategory
+    const rowStatus = str(g(r, H.status))
+    const rowTotal = num(g(r, H.total))
     if (!['ชำระเงิน', 'การปรับรายได้', 'โฆษณา'].includes(category)) {
-      warnings.push(`แถว ${i + 1}: หมวดหมู่ไม่รู้จัก "${category}"`)
-      continue
+      // cancelled orders come with a BLANK category, zero money, and cancellation
+      // details — keep them (useful ops data) under a synthetic 'ยกเลิก' category
+      // that the money math ignores
+      if (!category && rowStatus === 'ยกเลิก' && Math.abs(rowTotal) <= 0.005) {
+        category = 'ยกเลิก'
+      } else {
+        warnings.push(`แถว ${i + 1}: หมวดหมู่ไม่รู้จัก "${category}" (สถานะ "${rowStatus}", ทั้งหมด ${rowTotal})`)
+        continue
+      }
     }
     const createdAt = parseGrabDate(g(r, H.createdAt))
     const row: GrabRow = {
@@ -248,6 +257,7 @@ export function parseGrabWorkbook(wb: XLSX.WorkBook): GrabParse {
       cancelledBy: str(g(r, H.cancelledBy)),
       refundReason: str(g(r, H.refundReason)),
     }
+    if (row.category === 'ยกเลิก') { rows.push(row); continue }
     // identity check on payment rows: amount + discounts + fees + commissions = total
     if (row.category === 'ชำระเงิน') {
       const parts = row.amount + row.shopDiscount + row.deliveryDiscount + row.mdr + row.mdrVat +
