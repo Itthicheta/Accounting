@@ -56,6 +56,8 @@ export default function ReconTable({ recon, branchName }: {
             </td>
           ))}</tr>
           <tr><td>เข้าถุงเงิน (TCT)</td>{cols.map((b, i) => <td key={i}>{fmt(b.walletReceive)}</td>)}</tr>
+          <tr><td className="muted" style={{ paddingLeft: 24 }}>เข้าถุงเงิน (60)</td>{cols.map((b, i) => <td key={i} className="muted">{fmt(b.walletReceive * 0.6)}</td>)}</tr>
+          <tr><td className="muted" style={{ paddingLeft: 24 }}>เข้าถุงเงิน (40)</td>{cols.map((b, i) => <td key={i} className="muted">{fmt(b.walletReceive * 0.4)}</td>)}</tr>
           <tr className="total"><td>รวมเงินที่จะได้รับ</td>{cols.map((b, i) => <td key={i}>{fmt(b.netReceiving)}</td>)}</tr>
           <tr><td className="muted">จำนวนออเดอร์ (ธนาคาร / ถุงเงิน)</td>{cols.map((b, i) => <td key={i} className="muted">{b.bankOrders} / {b.walletOrders}</td>)}</tr>
         </tbody>
