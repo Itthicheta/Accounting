@@ -194,7 +194,8 @@ export default function GrabDashboard() {
     setBusy(false)
   }
 
-  useEffect(() => { load() }, [])
+  // wait for branches — the bill reconcile and branch grouping need the mappings
+  useEffect(() => { if (branches.length) load() }, [branches.length])
 
   async function onFiles(e: React.ChangeEvent<HTMLInputElement>) {
     const files = [...(e.target.files ?? [])]
