@@ -5,7 +5,6 @@ import { sb } from './lib/supabase'
 import Login from './pages/Login'
 import Shell from './pages/Shell'
 import Home from './pages/Home'
-import GrabUpload from './pages/GrabUpload'
 import GrabDashboard from './pages/GrabDashboard'
 import CateringList from './pages/CateringList'
 import CateringForm from './pages/CateringForm'
@@ -30,7 +29,6 @@ export default function App() {
     <Routes>
       <Route element={<Shell />}>
         <Route path="/" element={<Home />} />
-        <Route path="/grab/upload" element={<GrabUpload />} />
         <Route path="/grab" element={<GrabDashboard />} />
         <Route path="/catering" element={<CateringList />} />
         <Route path="/catering/new" element={<CateringForm />} />

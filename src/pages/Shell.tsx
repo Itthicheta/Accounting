@@ -19,7 +19,6 @@ export default function Shell() {
         <nav className="nav">
           <div className="brand">Mamapook<br />Accounting</div>
           <NavLink to="/" end>หน้าหลัก</NavLink>
-          <NavLink to="/grab/upload">Grab — อัปโหลด</NavLink>
           <NavLink to="/grab">Grab — Dashboard</NavLink>
           <NavLink to="/catering">Catering / Event</NavLink>
           <button className="ghost" style={{ marginTop: 24 }} onClick={() => sb.auth.signOut()}>ออกจากระบบ</button>

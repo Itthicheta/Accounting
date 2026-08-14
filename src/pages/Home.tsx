@@ -9,8 +9,7 @@ export default function Home() {
       <p className="muted">ระบบบัญชีรายรับ — เวอร์ชันทดลอง (Grab + Catering ใช้งานได้)</p>
       <div className="card">
         <h2>โมดูลที่พร้อมใช้</h2>
-        <p><Link to="/grab/upload">อัปโหลดรายงาน Grab</Link> — ตรวจกระทบยอดต่อสาขา และบันทึกเข้าระบบ</p>
-        <p><Link to="/grab">Grab dashboard</Link> — ดูรายได้ ต้นทุน (% ของยอดขาย) และยอดโอนแยกช่องทาง</p>
+        <p><Link to="/grab">Grab dashboard</Link> — อัปโหลดรายงาน ตรวจกระทบยอด ดูต้นทุน (% ของยอดขาย) และยอดค้างจ่าย</p>
         <p><Link to="/catering/new">บันทึก Catering / Event</Link> — กรอกยอดขายงานนอกสถานที่</p>
       </div>
       <div className="card">

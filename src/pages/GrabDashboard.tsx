@@ -1,7 +1,9 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import * as XLSX from 'xlsx'
 import { sb } from '../lib/supabase'
-import type { GrabParse, GrabRow, GrabPayout, GrabCategory } from '../lib/grabParser'
+import { parseGrabWorkbook, type GrabParse, type GrabRow, type GrabPayout, type GrabCategory } from '../lib/grabParser'
 import { reconByBranch, isBankSale, type BranchRecon } from '../lib/grabCalc'
+import { saveGrabUploads, type UploadItem } from '../lib/grabIngest'
 import { useBranches } from './Shell'
 import ReconTable from './ReconTable'
 
@@ -71,6 +73,11 @@ export default function GrabDashboard() {
   const [recon, setRecon] = useState<BranchRecon[]>([])
   const [payouts, setPayouts] = useState<DbRow[]>([])
   const [owe, setOwe] = useState<OweGrid>(new Map())
+  const [pending, setPending] = useState<UploadItem[]>([])
+  const [uploadMsg, setUploadMsg] = useState('')
+  const [uploadErr, setUploadErr] = useState('')
+  const [savingUpload, setSavingUpload] = useState(false)
+  const fileInput = useRef<HTMLInputElement>(null)
   const [count, setCount] = useState(0)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
@@ -190,9 +197,48 @@ export default function GrabDashboard() {
 
   useEffect(() => { load() }, [])
 
+  async function onFiles(e: React.ChangeEvent<HTMLInputElement>) {
+    const files = [...(e.target.files ?? [])]
+    e.target.value = ''
+    if (!files.length) return
+    setUploadMsg(''); setUploadErr('')
+    const items: UploadItem[] = []
+    for (const f of files) {
+      const wb = XLSX.read(await f.arrayBuffer())
+      items.push({ filename: f.name, parse: parseGrabWorkbook(wb) })
+    }
+    setPending(items)
+  }
+
+  const pendingWarnings = pending.flatMap(it => it.parse.warnings.map(w => `${it.filename}: ${w}`))
+  const pendingUnknownStores = [...new Set(pending.flatMap(it =>
+    it.parse.rows.filter(r => r.grabStoreId && !byStoreId.has(r.grabStoreId)).map(r => r.storeName)))]
+  const pendingBlocked = pendingUnknownStores.length > 0 ||
+    pendingWarnings.some(w => w.includes('หมวดหมู่ไม่รู้จัก'))
+
+  async function saveUploads() {
+    setSavingUpload(true); setUploadErr('')
+    try {
+      const codeByStore = new Map(branches.filter(b => b.grab_store_id).map(b => [b.grab_store_id!, b.code]))
+      const res = await saveGrabUploads(pending, codeByStore)
+      setUploadMsg(`บันทึกแล้ว ${pending.length} ไฟล์ (${res.rows} รายการ, ${res.payouts} ยอดโอน) — ข้อมูลวันเดิมถูกแทนที่`)
+      setPending([])
+      await load()
+    } catch (err) {
+      setUploadErr('บันทึกไม่สำเร็จ: ' + (err as Error).message)
+    }
+    setSavingUpload(false)
+  }
+
   return (
     <div>
-      <h1>Grab — Dashboard</h1>
+      <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+        <h1 style={{ margin: 0 }}>Grab — Dashboard</h1>
+        <div>
+          <input ref={fileInput} type="file" accept=".xlsx" multiple style={{ display: 'none' }} onChange={onFiles} />
+          <button className="primary" onClick={() => fileInput.current?.click()}>อัปโหลดรายงาน Grab</button>
+        </div>
+      </div>
       <div className="card row">
         <div><label>ตั้งแต่วันที่ (วันขาย)</label><input type="date" value={from} onChange={e => setFrom(e.target.value)} /></div>
         <div><label>ถึงวันที่</label><input type="date" value={to} onChange={e => setTo(e.target.value)} /></div>
@@ -200,6 +246,33 @@ export default function GrabDashboard() {
         <span className="muted">{count} รายการ</span>
       </div>
       {error && <div className="banner bad">{error}</div>}
+
+      {pending.length > 0 && (
+        <div className="card">
+          <h2>ไฟล์ที่เลือก ({pending.length})</h2>
+          {pending.map((it, i) => (
+            <div key={i} className="muted">
+              {it.filename} — {it.parse.periodStart}{it.parse.periodEnd !== it.parse.periodStart ? ` ถึง ${it.parse.periodEnd}` : ''} · {it.parse.rows.length} รายการ · {it.parse.payouts.length} ยอดโอน
+            </div>
+          ))}
+          {pendingWarnings.length > 0 && (
+            <div className="banner warn" style={{ marginTop: 10 }}>
+              <ul style={{ margin: '0 0 0 18px' }}>{pendingWarnings.map((w, i) => <li key={i}>{w}</li>)}</ul>
+            </div>
+          )}
+          {pendingUnknownStores.length > 0 && (
+            <div className="banner bad">ร้านที่ไม่รู้จัก (เพิ่ม grab_store_id ใน acc.branches ก่อน): {pendingUnknownStores.join(', ')}</div>
+          )}
+          <div style={{ marginTop: 10 }}>
+            <button className="primary" onClick={saveUploads} disabled={savingUpload || pendingBlocked}>
+              {savingUpload ? 'กำลังบันทึก…' : 'บันทึก (แทนที่ข้อมูลวันเดิม)'}
+            </button>
+            <button className="ghost" onClick={() => setPending([])} style={{ marginLeft: 8 }}>ยกเลิก</button>
+          </div>
+        </div>
+      )}
+      {uploadMsg && <div className="banner ok">{uploadMsg}</div>}
+      {uploadErr && <div className="banner bad">{uploadErr}</div>}
 
       {recon.length > 0 && (
         <div className="card">
