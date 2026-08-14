@@ -4,6 +4,7 @@ import { sb, fetchAll, bkkToday } from '../lib/supabase'
 import { parseGrabWorkbook, type GrabParse, type GrabRow, type GrabPayout, type GrabCategory } from '../lib/grabParser'
 import { reconByBranch, isBankSale, type BranchRecon } from '../lib/grabCalc'
 import { saveGrabUploads, dbToGrabRow, type UploadItem } from '../lib/grabIngest'
+import { buildPosLines, type PosViewRow } from '../lib/peakExport'
 import { useBranches } from './Shell'
 import ReconTable from './ReconTable'
 import MonthCalendar from './MonthCalendar'
@@ -40,12 +41,15 @@ export default function GrabDashboard() {
   const [calRefresh, setCalRefresh] = useState(0)
   const [oweSummary, setOweSummary] = useState<DbRow[]>([])
   const [cancelled, setCancelled] = useState<GrabRow[]>([])
+  const [billRecon, setBillRecon] = useState<{ branch: string; pos: number; grab: number; hasPos: boolean }[]>([])
   const [count, setCount] = useState(0)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
 
   const byStoreId = new Map(branches.filter(b => b.grab_store_id).map(b => [b.grab_store_id!, b]))
+  const byLocation = new Map(branches.filter(b => b.pos_location_id).map(b => [b.pos_location_id!, b.code]))
   const branchName = (key: string) => byStoreId.get(key)?.name_en ?? key
+  const branchNameByCode = (code: string) => branches.find(b => b.code === code)?.name_en ?? code
 
   async function load(fromArg?: string, toArg?: string) {
     const f0 = fromArg ?? from
@@ -124,6 +128,26 @@ export default function GrabDashboard() {
       }
       setRecon(recons)
       setPayouts(pos)
+
+      // bill-count reconcile: POS grab-origin bills vs Grab report rows (selected range)
+      const posRows = await fetchAll<PosViewRow>((f2, t2) => sb.from('pos_channel_payment')
+        .select('*').gte('business_date', f0).lte('business_date', t0)
+        .order('location_id').range(f2, t2))
+      const posAgg = buildPosLines(posRows, byLocation)
+      const grabBillsByBranch = new Map<string, number>()
+      for (const r of grabRows) {
+        if (r.category !== 'ชำระเงิน') continue
+        const code = byStoreId.get(r.grabStoreId)?.code ?? ''
+        if (code) grabBillsByBranch.set(code, (grabBillsByBranch.get(code) ?? 0) + 1)
+      }
+      const posCovered = new Set(posRows.map(r => byLocation.get(r.location_id)).filter(Boolean))
+      const codes = [...new Set([...posAgg.grabPosBills.keys(), ...grabBillsByBranch.keys()])].sort()
+      setBillRecon(codes.map(c => ({
+        branch: c,
+        pos: posAgg.grabPosBills.get(c) ?? 0,
+        grab: grabBillsByBranch.get(c) ?? 0,
+        hasPos: posCovered.has(c),
+      })))
 
       const { data: oweSum, error: oe } = await sb.from('grab_owe_summary').select('*')
       if (oe) throw oe
@@ -258,6 +282,33 @@ export default function GrabDashboard() {
         </div>
       )}
       {recon.length === 0 && !busy && <div className="banner warn">ไม่มีข้อมูลในช่วงวันที่นี้ — อัปโหลดรายงาน Grab ก่อน</div>}
+
+      {billRecon.length > 0 && (
+        <div className="card">
+          <h2>กระทบยอดจำนวนบิล Grab (POS vs รายงาน Grab)</h2>
+          <div className="scroll-x">
+            <table className="data">
+              <thead><tr><th>สาขา</th><th>บิลใน POS</th><th>บิลในรายงาน Grab</th><th>ผล</th></tr></thead>
+              <tbody>
+                {billRecon.map((r, i) => (
+                  <tr key={i}>
+                    <td style={{ textAlign: 'left' }}>{branchNameByCode(r.branch)}</td>
+                    <td>{r.pos}</td>
+                    <td>{r.grab}</td>
+                    <td style={{ textAlign: 'left' }}>
+                      {!r.hasPos
+                        ? <span className="chip warn">ยังไม่มีข้อมูล POS สาขานี้ (sync ยังไม่ครอบคลุม)</span>
+                        : r.pos === r.grab
+                          ? <span className="chip ok">✓ ตรงกัน</span>
+                          : <span className="chip bad">✗ ต่าง {Math.abs(r.pos - r.grab)} บิล{r.grab === 0 ? ' (ยังไม่อัปโหลดไฟล์ Grab?)' : r.pos > r.grab ? ' — POS เกิน อาจคีย์ซ้ำ' : ' — POS ขาด อาจลืมคีย์'}</span>}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
 
       {(owe.size > 0 || oweSummary.length > 0) && (() => {
         const stores = branches.filter(b => b.grab_store_id &&

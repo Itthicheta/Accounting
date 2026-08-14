@@ -19,7 +19,6 @@ export default function PeakExport() {
   const [warnings, setWarnings] = useState<string[]>([])
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
-  const [billRecon, setBillRecon] = useState<{ branch: string; pos: number; grab: number; hasPos: boolean }[]>([])
   const [config, setConfig] = useState<PeakConfig>(DEFAULT_PEAK_CONFIG)
 
   const byStoreId = new Map(branches.filter(b => b.grab_store_id).map(b => [b.grab_store_id!, b.code]))
@@ -59,22 +58,6 @@ export default function PeakExport() {
       const posRows = await fetchAll<PosViewRow>((f, t) => sb.from('pos_channel_payment')
         .select('*').eq('business_date', day).order('location_id').range(f, t))
       const pos = buildPosLines(posRows, byLocation)
-
-      // bill reconcile: POS grab-origin bills vs Grab report payment rows
-      const grabBillsByBranch = new Map<string, number>()
-      for (const r of grabRows) {
-        if (r.category !== 'ชำระเงิน') continue
-        const code = byStoreId.get(r.grabStoreId) ?? ''
-        if (code) grabBillsByBranch.set(code, (grabBillsByBranch.get(code) ?? 0) + 1)
-      }
-      const posCoveredBranches = new Set(posRows.map(r => byLocation.get(r.location_id)).filter(Boolean))
-      const branchCodes = [...new Set([...pos.grabPosBills.keys(), ...grabBillsByBranch.keys()])].sort()
-      setBillRecon(branchCodes.map(c => ({
-        branch: c,
-        pos: pos.grabPosBills.get(c) ?? 0,
-        grab: grabBillsByBranch.get(c) ?? 0,
-        hasPos: posCoveredBranches.has(c),
-      })))
 
       const { data: events, error: ee } = await sb.from('catering_events')
         .select('branch_code,name,net_receiving').eq('event_date', day)
@@ -144,33 +127,6 @@ export default function PeakExport() {
           </table>
         </div>
       )}
-      {billRecon.length > 0 && (
-        <div className="card">
-          <h2>กระทบยอดจำนวนบิล Grab (POS delivery vs รายงาน Grab)</h2>
-          <div className="scroll-x">
-            <table className="data">
-              <thead><tr><th>สาขา</th><th>บิลใน POS</th><th>บิลในรายงาน Grab</th><th>ผล</th></tr></thead>
-              <tbody>
-                {billRecon.map((r, i) => (
-                  <tr key={i}>
-                    <td style={{ textAlign: 'left' }}>{branchName(r.branch)}</td>
-                    <td>{r.pos}</td>
-                    <td>{r.grab}</td>
-                    <td style={{ textAlign: 'left' }}>
-                      {!r.hasPos
-                        ? <span className="chip warn">ยังไม่มีข้อมูล POS สาขานี้ (sync ยังไม่ครอบคลุม)</span>
-                        : r.pos === r.grab
-                          ? <span className="chip ok">✓ ตรงกัน</span>
-                          : <span className="chip bad">✗ ต่าง {Math.abs(r.pos - r.grab)} บิล{r.grab === 0 ? ' (ยังไม่อัปโหลดไฟล์ Grab?)' : r.pos > r.grab ? ' — POS เกิน อาจคีย์ซ้ำ' : ' — POS ขาด อาจลืมคีย์'}</span>}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-
       {lines.length === 0 && !busy && !error && (
         <div className="banner warn">ไม่มีข้อมูลรายรับสำหรับวันนี้ — อัปโหลดรายงาน Grab หรือบันทึก Catering ก่อน</div>
       )}
