@@ -4,7 +4,7 @@ import { sb, fetchAll, bkkToday } from '../lib/supabase'
 import { parseGrabWorkbook, type GrabParse, type GrabRow, type GrabPayout, type GrabCategory } from '../lib/grabParser'
 import { reconByBranch, isBankSale, type BranchRecon } from '../lib/grabCalc'
 import { saveGrabUploads, dbToGrabRow, type UploadItem } from '../lib/grabIngest'
-import { buildPosLines, type PosViewRow } from '../lib/peakExport'
+import { type PosViewRow } from '../lib/peakExport'
 import { useBranches } from './Shell'
 import ReconTable from './ReconTable'
 import MonthCalendar from './MonthCalendar'
@@ -134,38 +134,33 @@ export default function GrabDashboard() {
       const posRows = await fetchAll<PosViewRow>((f2, t2) => sb.from('pos_channel_payment')
         .select('*').gte('business_date', f0).lte('business_date', t0)
         .order('location_id').range(f2, t2))
-      // compare only days BOTH sources cover (per branch): a missing POS sync day
-      // or a not-yet-uploaded Grab file must not masquerade as a keying error
-      const grabDays = new Set(grabRows.map(r => `${byStoreId.get(r.grabStoreId)?.code}|${r.businessDate}`))
-      const bothDays = new Set(posRows
-        .map(r => `${byLocation.get(r.location_id)}|${r.business_date}`)
-        .filter(k => grabDays.has(k)))
-      const posAgg = buildPosLines(posRows.filter(r =>
-        bothDays.has(`${byLocation.get(r.location_id)}|${r.business_date}`)), byLocation)
-      const grabBillsByBranch = new Map<string, number>()
+      // per-day bill grid: POS grab-origin bills vs Grab-report bills, day × branch.
+      // A missing side shows as – so coverage gaps are visible instead of hidden.
+      const cells = new Map<string, { pos?: number; grab?: number }>()
+      const cellOf = (code: string, d: string) => {
+        const k = `${code}|${d}`
+        if (!cells.has(k)) cells.set(k, {})
+        return cells.get(k)!
+      }
+      for (const r of posRows) {
+        const code = byLocation.get(r.location_id)
+        if (!code) continue
+        const isGrabOrigin = r.method_group === 'platform' ||
+          (r.channel === 'delivery' && r.method_code === 'thai_chuai_thai')
+        const c = cellOf(code, r.business_date)
+        if (c.pos === undefined) c.pos = 0            // POS synced that day (even if 0 grab bills)
+        if (isGrabOrigin) c.pos += Number(r.bills)
+      }
       for (const r of grabRows) {
-        if (r.category !== 'ชำระเงิน') continue
-        const code = byStoreId.get(r.grabStoreId)?.code ?? ''
-        if (code && bothDays.has(`${code}|${r.businessDate}`)) {
-          grabBillsByBranch.set(code, (grabBillsByBranch.get(code) ?? 0) + 1)
-        }
+        const code = byStoreId.get(r.grabStoreId)?.code
+        if (!code || !r.businessDate) continue
+        const c = cellOf(code, r.businessDate)
+        if (c.grab === undefined) c.grab = 0          // report uploaded for that day
+        if (r.category === 'ชำระเงิน') c.grab += 1
       }
-      const daysByBranch = new Map<string, number>()
-      for (const k of bothDays) {
-        const c = k.split('|')[0]
-        daysByBranch.set(c, (daysByBranch.get(c) ?? 0) + 1)
-      }
-      // every grab-selling branch always appears, even with no activity in the range
-      const codes = [...new Set([
-        ...branches.filter(b => b.is_active && b.grab_store_id).map(b => b.code),
-        ...posAgg.grabPosBills.keys(), ...grabBillsByBranch.keys(),
-      ])].sort()
-      setBillRecon(codes.map(c => ({
-        branch: c,
-        pos: posAgg.grabPosBills.get(c) ?? 0,
-        grab: grabBillsByBranch.get(c) ?? 0,
-        days: daysByBranch.get(c) ?? 0,
-      })))
+      const gridCodes = branches.filter(b => b.is_active && b.grab_store_id).map(b => b.code).sort()
+      const gridDates = [...new Set([...cells.keys()].map(k => k.split('|')[1]))].sort()
+      setBillGrid({ dates: gridDates, codes: gridCodes, cells })
 
       const { data: oweSum, error: oe } = await sb.from('grab_owe_summary').select('*')
       if (oe) throw oe
