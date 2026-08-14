@@ -107,7 +107,7 @@ describe('buildPosLines (Point rules 2026-08-15, real gaysorn 13/08 shape)', () 
 describe('PeakConfig', () => {
   it('workbook uses configured H/I/P/K values', () => {
     const gaysorn: Branch = { code: 'gaysorn', name_en: 'Gaysorn', name_th: null, grab_store_id: 'sa', peak_bank_sub: 'BSV002', bank_last4: null, is_active: true, peak_customer: 'C00065', peak_class: '00002', tungngern_peak_sub: null, pos_location_id: 'gaysorn' }
-    const cfg = { revenueAccount: '410199', vatRate: 0, priceType: 3, taxInvoice: 2 }
+    const cfg = { revenueAccount: '410199', vatRate: 0, priceType: 3, taxInvoice: 2, qty: 1 }
     const { lines } = buildPeakReceiptLines('2026-08-13', [gaysorn], [{ branchCode: 'gaysorn', grabBank: 100, grabWallet: 0 }], [], [], cfg)
     expect(lines[0].account).toBe('410199')
     const wb = peakReceiptWorkbook(lines, cfg)

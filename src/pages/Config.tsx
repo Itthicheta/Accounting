@@ -2,14 +2,13 @@ import { useEffect, useState } from 'react'
 import { sb, type Branch } from '../lib/supabase'
 import { DEFAULT_PEAK_CONFIG } from '../lib/peakExport'
 
-type Editable = Pick<Branch, 'peak_customer' | 'peak_bank_sub' | 'tungngern_peak_sub' | 'peak_class' | 'grab_store_id' | 'pos_location_id'>
+type Editable = Pick<Branch, 'peak_customer' | 'peak_bank_sub' | 'tungngern_peak_sub' | 'peak_class' | 'grab_store_id'>
 const FIELDS: { key: keyof Editable; label: string; width?: number }[] = [
   { key: 'peak_customer', label: 'ลูกค้า (E)', width: 90 },
   { key: 'peak_bank_sub', label: 'บัญชีธนาคาร (R)', width: 100 },
   { key: 'tungngern_peak_sub', label: 'บัญชีถุงเงิน (R)', width: 100 },
   { key: 'peak_class', label: 'กลุ่มจัดประเภท (T)', width: 100 },
   { key: 'grab_store_id', label: 'Grab store id', width: 260 },
-  { key: 'pos_location_id', label: 'POS location', width: 120 },
 ]
 
 const SETTING_META: { key: string; label: string }[] = [
@@ -17,12 +16,14 @@ const SETTING_META: { key: string; label: string }[] = [
   { key: 'peak_vat_rate', label: 'อัตราภาษี (P)' },
   { key: 'peak_price_type', label: 'ประเภทราคา (I): 1=แยกภาษี 2=รวมภาษี 3=ไม่มีภาษี' },
   { key: 'peak_tax_invoice', label: 'ออกใบกำกับภาษี (H): 1=ออก 2=ไม่ออก' },
+  { key: 'peak_qty', label: 'จำนวน (M) — คงที่' },
 ]
 
 export default function Config() {
   const [rows, setRows] = useState<Branch[]>([])
   const [settings, setSettings] = useState<Record<string, string>>({})
   const [busy, setBusy] = useState(false)
+  const [editing, setEditing] = useState(false)
   const [msg, setMsg] = useState('')
   const [err, setErr] = useState('')
 
@@ -59,6 +60,7 @@ export default function Config() {
         if (error) throw error
       }
       setMsg('บันทึกการตั้งค่าแล้ว — มีผลกับไฟล์ Peak ที่สร้างครั้งถัดไปทันที')
+      setEditing(false)
     } catch (e) {
       setErr((e as Error).message)
     }
@@ -86,8 +88,9 @@ export default function Config() {
                 {FIELDS.map(f => (
                   <td key={f.key} style={{ textAlign: 'left' }}>
                     <input
-                      style={{ width: f.width ?? 110, padding: '4px 6px', fontSize: 13 }}
+                      style={{ width: f.width ?? 110, padding: '4px 6px', fontSize: 13, opacity: editing ? 1 : 0.75, background: editing ? '#fff' : 'transparent', borderColor: editing ? 'var(--border)' : 'transparent' }}
                       value={(r[f.key] as string | null) ?? ''}
+                      disabled={!editing}
                       onChange={e => setField(r.code, f.key, e.target.value)}
                     />
                   </td>
@@ -109,7 +112,8 @@ export default function Config() {
             <div key={m.key}>
               <label>{m.label}</label>
               <input
-                style={{ width: 130 }}
+                style={{ width: 150, opacity: editing ? 1 : 0.75, background: editing ? '#fff' : 'transparent', borderColor: editing ? 'var(--border)' : 'transparent' }}
+                disabled={!editing}
                 value={settings[m.key] ?? ''}
                 placeholder={String(DEFAULT_PEAK_CONFIG[
                   m.key === 'peak_revenue_account' ? 'revenueAccount'
@@ -124,7 +128,12 @@ export default function Config() {
 
       {msg && <div className="banner ok">{msg}</div>}
       {err && <div className="banner bad">{err}</div>}
-      <button className="primary" onClick={save} disabled={busy}>{busy ? 'กำลังบันทึก…' : 'บันทึกการตั้งค่า'}</button>
+      {!editing
+        ? <button className="primary" onClick={() => { setMsg(''); setErr(''); setEditing(true) }}>แก้ไข</button>
+        : <>
+            <button className="primary" onClick={save} disabled={busy}>{busy ? 'กำลังบันทึก…' : 'บันทึกการตั้งค่า'}</button>
+            <button className="ghost" style={{ marginLeft: 8 }} onClick={() => { setEditing(false); load() }}>ยกเลิก</button>
+          </>}
     </div>
   )
 }

@@ -36,6 +36,7 @@ export default function PeakExport() {
         vatRate: Number(smap.peak_vat_rate ?? DEFAULT_PEAK_CONFIG.vatRate),
         priceType: Number(smap.peak_price_type ?? DEFAULT_PEAK_CONFIG.priceType),
         taxInvoice: Number(smap.peak_tax_invoice ?? DEFAULT_PEAK_CONFIG.taxInvoice),
+        qty: Number(smap.peak_qty ?? DEFAULT_PEAK_CONFIG.qty),
       }
       setConfig(cfg)
       const rows = await fetchAll<DbRow>((f, t) => sb.from('grab_rows')

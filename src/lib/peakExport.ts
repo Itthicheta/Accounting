@@ -102,9 +102,10 @@ export type PeakConfig = {
   vatRate: number          // P
   priceType: number        // I (1 แยกภาษี, 2 รวมภาษี, 3 ไม่มีภาษี)
   taxInvoice: number       // H (1 ออก, 2 ไม่ออก)
+  qty: number              // M จำนวน — คงที่
 }
 export const DEFAULT_PEAK_CONFIG: PeakConfig = {
-  revenueAccount: '410101', vatRate: 0.07, priceType: 2, taxInvoice: 1,
+  revenueAccount: '410101', vatRate: 0.07, priceType: 2, taxInvoice: 1, qty: 1,
 }
 
 export function toDocDate(isoDate: string): number {
@@ -203,7 +204,7 @@ export function peakReceiptWorkbook(lines: PeakReceiptLine[], config: PeakConfig
     aoa.push([
       l.seq, l.docDate, '', '', l.customer,
       '', '', config.taxInvoice, config.priceType,
-      '', l.account, l.description, 1, l.amount,
+      '', l.account, l.description, config.qty, l.amount,
       '', config.vatRate, '', l.paidBy,
       l.note, l.classGroup,
     ])
