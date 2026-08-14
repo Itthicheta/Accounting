@@ -141,3 +141,19 @@ describe('refund rule edge cases', () => {
     expect(b.walletReceive).toBeCloseTo(-25, 2)
   })
 })
+
+describe('pending regular orders (no payout id yet)', () => {
+  it('classifies by inline deductions, not payout id', () => {
+    const p = parse([
+      // pending regular order: no payout id BUT has commissions inline
+      row({ orderCode: 'GF-822', amount: 238, netSales: 238, commPlatform: -35.7, marketingFee: -71.86, total: 130.44 }),
+      // TCT order: no payout id, no deductions
+      row({ orderCode: 'GF-052', amount: 208, shopDiscount: -45, netSales: 163, total: 163 }),
+    ])
+    const b = reconByBranch(p)[0]
+    expect(b.bankOrders).toBe(1)
+    expect(b.walletOrders).toBe(1)
+    expect(b.orderNets).toBeCloseTo(130.44, 2)
+    expect(b.walletReceive).toBeCloseTo(163, 2)
+  })
+})

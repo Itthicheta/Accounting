@@ -50,10 +50,22 @@ function blank(store: string, grabStoreId: string): BranchRecon {
   }
 }
 
+/**
+ * Bank-stream sale = has a payout id OR carries inline deductions (a pending regular
+ * order awaiting payout assignment still shows its commissions inline). TCT/wallet
+ * sales never have inline deductions.
+ */
+export function isBankSale(r: GrabRow): boolean {
+  if (r.payoutId) return true
+  const ded = r.mdr + r.mdrVat + r.grabFee + r.marketingFee +
+    r.commDelivery + r.commPlatform + r.commOrder + r.commOther + r.wht
+  return Math.abs(ded) > 0.001
+}
+
 function addRow(b: BranchRecon, r: GrabRow, tctCodes: Set<string>, bankCodes: Set<string>): void {
   if (r.category === 'ชำระเงิน') {
     const disc = r.shopDiscount + r.deliveryDiscount
-    if (r.payoutId) {
+    if (isBankSale(r)) {
       b.bankOrders += 1
       b.grossBank += r.amount
       b.discBank += disc
@@ -116,7 +128,7 @@ export function reconByBranch(p: GrabParse): BranchRecon[] {
   for (const r of p.rows) {
     if (r.category === 'ชำระเงิน' && r.orderCode) {
       const key = r.grabStoreId || r.storeName
-      const m = r.payoutId ? bankCodesByStore : tctCodesByStore
+      const m = isBankSale(r) ? bankCodesByStore : tctCodesByStore
       if (!m.has(key)) m.set(key, new Set())
       m.get(key)!.add(r.orderCode)
     }
