@@ -16,6 +16,7 @@ export default function MonthCalendar({ onPick, refreshKey }: {
   refreshKey: number
 }) {
   const today = bkkToday()
+  const [open, setOpen] = useState(false)
   const [year, setYear] = useState(Number(today.slice(0, 4)))
   const [month, setMonth] = useState(Number(today.slice(5, 7))) // 1-12
   const [dataDates, setDataDates] = useState<Set<string>>(new Set())
@@ -26,6 +27,7 @@ export default function MonthCalendar({ onPick, refreshKey }: {
   const firstWeekday = new Date(year, month - 1, 1).getDay() // 0 = Sunday
 
   useEffect(() => {
+    if (!open) return
     let alive = true
     fetchAll<{ business_date: string }>((f, t) => sb.from('grab_rows')
       .select('business_date')
@@ -36,7 +38,7 @@ export default function MonthCalendar({ onPick, refreshKey }: {
       })
       .catch(() => { /* calendar markers are non-critical */ })
     return () => { alive = false }
-  }, [monthStart, monthEnd, refreshKey])
+  }, [open, monthStart, monthEnd, refreshKey])
 
   function shiftMonth(d: number) {
     const m = month + d
@@ -50,12 +52,26 @@ export default function MonthCalendar({ onPick, refreshKey }: {
     ...Array.from({ length: daysInMonth }, (_, i) => i + 1),
   ]
 
+  if (!open) {
+    return (
+      <div className="card" style={{ maxWidth: 340, padding: '10px 14px' }}>
+        <button className="ghost" style={{ padding: 0, fontSize: 14, color: 'var(--accent)', fontWeight: 600 }}
+          onClick={() => setOpen(true)}>
+          📅 ปฏิทินข้อมูล — คลิกเพื่อเปิด
+        </button>
+      </div>
+    )
+  }
+
   return (
     <div className="card" style={{ maxWidth: 340 }}>
       <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
         <button className="ghost" onClick={() => shiftMonth(-1)} aria-label="เดือนก่อน">‹</button>
         <strong>{THAI_MONTHS[month - 1]} {year}</strong>
-        <button className="ghost" onClick={() => shiftMonth(1)} aria-label="เดือนถัดไป">›</button>
+        <div>
+          <button className="ghost" onClick={() => shiftMonth(1)} aria-label="เดือนถัดไป">›</button>
+          <button className="ghost" onClick={() => setOpen(false)} aria-label="ย่อปฏิทิน" style={{ marginLeft: 4 }}>✕</button>
+        </div>
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 2, textAlign: 'center' }}>
         {WEEKDAYS.map(w => <div key={w} className="muted" style={{ fontSize: 11.5, padding: '2px 0' }}>{w}</div>)}
