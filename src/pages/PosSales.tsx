@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react'
 import { sb, fetchAll, bkkToday } from '../lib/supabase'
 import type { PosViewRow } from '../lib/peakExport'
+import { reconByBranch, COMPANY } from '../lib/grabCalc'
+import { dbToGrabRow } from '../lib/grabIngest'
 import { useBranches } from './Shell'
 
 const fmt = (n: number) => n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
@@ -10,10 +12,11 @@ type BranchBlock = {
   branchCode: string
   store: Map<string, Cell>       // storefront (dine_in + take_away) by method key
   storeOther: Map<string, Cell>  // future methods (alipay, wechat, …) by name
-  grabTransfer: Cell             // grab-method bills (settle via Grab payout)
-  grabTct: Cell                  // delivery × ไทยช่วยไทย
+  grabTransfer: Cell             // bills from POS; amount = โอนเข้าธนาคาร (คำนวณ) from Grab report
+  grabTct: Cell                  // bills from POS delivery×TCT; amount = เข้าถุงเงิน from Grab report
   deliveryOther: Map<string, Cell>
   internal: Cell
+  grabHasReport?: boolean
 }
 
 const blank = (): Cell => ({ bills: 0, amount: 0 })
@@ -28,6 +31,7 @@ export default function PosSales() {
   const [error, setError] = useState('')
 
   const byLocation = new Map(branches.filter(b => b.pos_location_id).map(b => [b.pos_location_id!, b.code]))
+  const byStoreId = new Map(branches.filter(b => b.grab_store_id).map(b => [b.grab_store_id!, b.code]))
   const nameOf = (code: string) => branches.find(b => b.code === code)?.name_en ?? code
   const posBranches = branches.filter(b => b.pos_location_id)
 
@@ -54,9 +58,9 @@ export default function PosSales() {
         const bills = Number(r.bills)
         const amount = Number(r.amount_thb)
         if (r.method_group === 'internal') { add(b.internal, bills, amount); continue }
-        if (r.method_group === 'platform') { add(b.grabTransfer, bills, amount); continue }
+        if (r.method_group === 'platform') { b.grabTransfer.bills += bills; continue }
         if (r.channel === 'delivery') {
-          if (r.method_code === 'thai_chuai_thai') add(b.grabTct, bills, amount)
+          if (r.method_code === 'thai_chuai_thai') b.grabTct.bills += bills
           else {
             if (!b.deliveryOther.has(r.method_name)) b.deliveryOther.set(r.method_name, blank())
             add(b.deliveryOther.get(r.method_name)!, bills, amount)
@@ -71,6 +75,30 @@ export default function PosSales() {
           if (!b.storeOther.has(r.method_name)) b.storeOther.set(r.method_name, blank())
           add(b.storeOther.get(r.method_name)!, bills, amount)
         }
+      }
+      // Grab section AMOUNTS come from the Grab report (settlement), not POS:
+      // เงินโอน = โอนเข้าธนาคาร (คำนวณ), ไทยช่วยไทย = เข้าถุงเงิน (TCT).
+      // POS keeps only the bill counts (used for the count reconcile).
+      const grabDb = await fetchAll<Record<string, unknown>>((f, t) => sb.from('grab_rows')
+        .select('*').eq('business_date', day).order('id').range(f, t))
+      const grabRows = grabDb.map(dbToGrabRow).filter(r => r.category !== 'ยกเลิก')
+      const recon = grabRows.length
+        ? reconByBranch({ rows: grabRows, payouts: [], periodStart: day, periodEnd: day, declaredStart: day, declaredEnd: day, warnings: [] })
+        : []
+      for (const rb of recon) {
+        if (rb.store === COMPANY) continue
+        const code = byStoreId.get(rb.grabStoreId)
+        if (!code) continue
+        if (!byBranch.has(code)) {
+          byBranch.set(code, {
+            branchCode: code, store: new Map(), storeOther: new Map(),
+            grabTransfer: blank(), grabTct: blank(), deliveryOther: new Map(), internal: blank(),
+          })
+        }
+        const b = byBranch.get(code)!
+        b.grabTransfer.amount = rb.bankPayoutCalc
+        b.grabTct.amount = rb.walletReceive
+        b.grabHasReport = true
       }
       setBlocks([...byBranch.values()].sort((a, z) => a.branchCode.localeCompare(z.branchCode)))
     } catch (err) {
@@ -110,9 +138,9 @@ export default function PosSales() {
           rows.push({ label, cell: b.store.get(code) ?? blank(), kind: 'row' })
         }
         for (const [name, cell] of b.storeOther) rows.push({ label: `อื่นๆ — ${name}`, cell, kind: 'row' })
-        rows.push({ label: 'Grab', kind: 'section' })
-        rows.push({ label: 'เงินโอน', cell: b.grabTransfer, kind: 'row' })
-        rows.push({ label: 'ไทยช่วยไทย', cell: b.grabTct, kind: 'row' })
+        rows.push({ label: 'Grab (จำนวนเงินจากรายงาน Grab)', kind: 'section' })
+        rows.push({ label: 'เงินโอน — โอนเข้าธนาคาร (คำนวณ)', cell: b.grabTransfer, kind: 'row' })
+        rows.push({ label: 'ไทยช่วยไทย — เข้าถุงเงิน (TCT)', cell: b.grabTct, kind: 'row' })
         for (const [name, cell] of b.deliveryOther) rows.push({ label: `อื่นๆ (delivery) — ${name}`, cell, kind: 'row' })
         const all = rows.filter(r => r.cell).map(r => r.cell!)
         const total: Cell = { bills: all.reduce((s, c) => s + c.bills, 0), amount: all.reduce((s, c) => s + c.amount, 0) }
@@ -137,6 +165,9 @@ export default function PosSales() {
                   <td>{total.bills}</td>
                   <td>{fmt(total.amount)}</td>
                 </tr>
+                {!b.grabHasReport && (b.grabTransfer.bills > 0 || b.grabTct.bills > 0) && (
+                  <tr><td className="muted" colSpan={3} style={{ textAlign: 'left' }}>⚠ มีบิล Grab ใน POS แต่ยังไม่อัปโหลดรายงาน Grab ของวันนี้ — จำนวนเงินจึงยังไม่แสดง</td></tr>
+                )}
                 {b.internal.bills > 0 && (
                   <tr><td className="muted" style={{ textAlign: 'left' }}>internal (staff meal ฯลฯ) — ไม่นับเป็นยอดขาย</td>
                     <td className="muted">{b.internal.bills}</td><td className="muted">{fmt(b.internal.amount)}</td></tr>
