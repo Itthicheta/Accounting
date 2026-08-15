@@ -27,6 +27,7 @@ export default function PosSales() {
   const [day, setDay] = useState(bkkToday())
   const [branch, setBranch] = useState('')
   const [blocks, setBlocks] = useState<BranchBlock[]>([])
+  const [freshness, setFreshness] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
 
@@ -101,6 +102,12 @@ export default function PosSales() {
         b.grabHasReport = true
       }
       setBlocks([...byBranch.values()].sort((a, z) => a.branchCode.localeCompare(z.branchCode)))
+      const { data: log } = await sb.from('pos_refresh_log')
+        .select('ran_at,status').eq('status', 'ok').order('id', { ascending: false }).limit(1)
+      if (log?.length) {
+        const t = new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Bangkok', hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' }).format(new Date(log[0].ran_at as string))
+        setFreshness(`ข้อมูล POS อัปเดตล่าสุด ${t} (รีเฟรชอัตโนมัติทุก 30 นาที)`)
+      }
     } catch (err) {
       setError((err as Error).message)
     }
@@ -127,6 +134,7 @@ export default function PosSales() {
           </select>
         </div>
         {busy && <span className="muted">กำลังโหลด…</span>}
+        {freshness && <span className="muted">{freshness}</span>}
       </div>
       {error && <div className="banner bad">{error}</div>}
 
