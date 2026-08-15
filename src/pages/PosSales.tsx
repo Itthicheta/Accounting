@@ -105,8 +105,12 @@ export default function PosSales() {
       const { data: log } = await sb.from('pos_refresh_log')
         .select('ran_at,status').eq('status', 'ok').order('id', { ascending: false }).limit(1)
       if (log?.length) {
-        const t = new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Bangkok', hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' }).format(new Date(log[0].ran_at as string))
-        setFreshness(`ข้อมูล POS อัปเดตล่าสุด ${t} (รีเฟรชอัตโนมัติทุก 30 นาที)`)
+        const parts = new Intl.DateTimeFormat('en-GB', {
+          timeZone: 'Asia/Bangkok', day: '2-digit', month: '2-digit', year: 'numeric',
+          hour: '2-digit', minute: '2-digit', hour12: false,
+        }).formatToParts(new Date(log[0].ran_at as string))
+          .reduce<Record<string, string>>((a, x) => (a[x.type] = x.value, a), {})
+        setFreshness(`ข้อมูล POS อัปเดตล่าสุด ${parts.day}/${parts.month}/${parts.year} ${parts.hour}:${parts.minute} (รีเฟรชอัตโนมัติทุก 30 นาที)`)
       }
     } catch (err) {
       setError((err as Error).message)
