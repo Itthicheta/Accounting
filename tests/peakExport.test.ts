@@ -4,8 +4,8 @@ import { buildPeakReceiptLines, buildPosLines, peakReceiptWorkbook, toDocDate } 
 import type { Branch } from '../src/lib/supabase'
 
 const branches: Branch[] = [
-  { code: 'gaysorn', name_en: 'Gaysorn Tower', name_th: null, grab_store_id: 'sa', peak_bank_sub: 'BSV002', bank_last4: null, is_active: true, peak_customer: 'C00065', peak_class: '00002', tungngern_peak_sub: null, pos_location_id: 'gaysorn' },
-  { code: 'silom', name_en: 'Park Silom', name_th: null, grab_store_id: 'sb', peak_bank_sub: 'BSV003', bank_last4: null, is_active: true, peak_customer: 'C00066', peak_class: '00003', tungngern_peak_sub: 'BSV020', pos_location_id: 'silom' },
+  { code: 'gaysorn', name_en: 'Gaysorn Tower', name_th: null, grab_store_id: 'sa', peak_bank_sub: 'BSV002', bank_last4: null, is_active: true, peak_customer: 'C00065', peak_class: '00002', tungngern_peak_sub: null, pos_location_id: 'gaysorn', ewallet: 'EWL002', grab_contact: 'C00073' },
+  { code: 'silom', name_en: 'Park Silom', name_th: null, grab_store_id: 'sb', peak_bank_sub: 'BSV003', bank_last4: null, is_active: true, peak_customer: 'C00066', peak_class: '00003', tungngern_peak_sub: 'BSV020', pos_location_id: 'silom', ewallet: 'EWL003', grab_contact: 'C00074' },
 ]
 
 describe('buildPeakReceiptLines', () => {
@@ -94,7 +94,7 @@ describe('buildPosLines (Point rules 2026-08-15, real gaysorn 13/08 shape)', () 
 
   it('TCT line routes to the wallet account in receipt lines', () => {
     const { posLines } = buildPosLines(rows, loc)
-    const gaysorn: Branch = { code: 'gaysorn', name_en: 'Gaysorn Tower', name_th: null, grab_store_id: 'sa', peak_bank_sub: 'BSV002', bank_last4: null, is_active: true, peak_customer: 'C00065', peak_class: '00002', tungngern_peak_sub: 'BSV015', pos_location_id: 'gaysorn' }
+    const gaysorn: Branch = { code: 'gaysorn', name_en: 'Gaysorn Tower', name_th: null, grab_store_id: 'sa', peak_bank_sub: 'BSV002', bank_last4: null, is_active: true, peak_customer: 'C00065', peak_class: '00002', tungngern_peak_sub: 'BSV015', pos_location_id: 'gaysorn', ewallet: 'EWL002', grab_contact: 'C00073' }
     const { lines } = buildPeakReceiptLines('2026-08-13', [gaysorn], [], [], posLines)
     const tct = lines.find(l => l.note === 'ไทยช่วยไทย')!
     expect(tct.paidBy).toBe('BSV015')
@@ -106,7 +106,7 @@ describe('buildPosLines (Point rules 2026-08-15, real gaysorn 13/08 shape)', () 
 
 describe('PeakConfig', () => {
   it('workbook uses configured H/I/P/K values', () => {
-    const gaysorn: Branch = { code: 'gaysorn', name_en: 'Gaysorn', name_th: null, grab_store_id: 'sa', peak_bank_sub: 'BSV002', bank_last4: null, is_active: true, peak_customer: 'C00065', peak_class: '00002', tungngern_peak_sub: null, pos_location_id: 'gaysorn' }
+    const gaysorn: Branch = { code: 'gaysorn', name_en: 'Gaysorn', name_th: null, grab_store_id: 'sa', peak_bank_sub: 'BSV002', bank_last4: null, is_active: true, peak_customer: 'C00065', peak_class: '00002', tungngern_peak_sub: null, pos_location_id: 'gaysorn', ewallet: 'EWL002', grab_contact: 'C00073' }
     const cfg = { revenueAccount: '410199', vatRate: 0, priceType: 3, taxInvoice: 2, qty: 1 }
     const { lines } = buildPeakReceiptLines('2026-08-13', [gaysorn], [{ branchCode: 'gaysorn', grabBank: 100, grabWallet: 0 }], [], [], cfg)
     expect(lines[0].account).toBe('410199')

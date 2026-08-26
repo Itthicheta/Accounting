@@ -43,4 +43,6 @@ export type Branch = {
   peak_class: string | null
   tungngern_peak_sub: string | null
   pos_location_id: string | null
+  ewallet: string | null       // EWL001-006 — Peak G-Wallet ของสาขา (flow ใหม่ 2026-08)
+  grab_contact: string | null  // ผู้ติดต่อ Grab ใน Peak (C000xx) ใช้ทั้งไฟล์รายรับและไฟล์ต้นทุน
 }

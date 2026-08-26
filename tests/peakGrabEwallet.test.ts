@@ -1,0 +1,191 @@
+import { describe, it, expect } from 'vitest'
+import * as XLSX from 'xlsx'
+import {
+  buildGrabReceiptLines, buildGrabExpenseLines, peakExpenseWorkbook, peakReceiptWorkbook,
+  DEFAULT_GRAB_PEAK_CONFIG,
+} from '../src/lib/peakExport'
+import type { GrabRow } from '../src/lib/grabParser'
+import type { Branch } from '../src/lib/supabase'
+
+// Rama 9 as Point's hand-made sample (PEAK_ImportExpense(1).xlsx / PEAK_ImportReceipt(1).xlsx)
+const rama9: Branch = {
+  code: 'rama9', name_en: 'Rama 9', name_th: null, grab_store_id: 'store-r9',
+  peak_bank_sub: 'BSV004', bank_last4: null, is_active: true, peak_customer: 'C00068',
+  peak_class: '00001', tungngern_peak_sub: null, pos_location_id: null,
+  ewallet: 'EWL001', grab_contact: 'C00072',
+}
+
+const base: GrabRow = {
+  storeName: 'Rama 9', grabStoreId: 'store-r9', category: 'ชำระเงิน', subitem: 'การชำระเงิน',
+  status: 'โอนเงินสำเร็จแล้ว', txnId: 't1', relatedTxnId: '', orderCode: 'GF-654', longOrderId: 'lo1',
+  orderType: 'การจัดส่งอาหาร', paymentMethod: 'บัตรเครดิต', payoutId: 'PO-1',
+  grabCreatedAt: '2026-08-17T12:00:00+07:00', transferredAt: null, businessDate: '2026-08-17',
+  amount: 0, shopDiscount: 0, deliveryDiscount: 0, netSales: 0, mdr: 0, mdrVat: 0, grabFee: 0,
+  marketingFee: 0, commDelivery: 0, commPlatform: 0, commOrder: 0, commOther: 0, wht: 0,
+  total: 0, commVat: 0, description: '', cancelReason: '', cancelledBy: '', refundReason: '',
+}
+
+// GF-654: gross 327, discount -63, marketing -37.45, platform -39.60, other -11.30 → net 175.65
+const gf654: GrabRow = {
+  ...base, orderCode: 'GF-654', amount: 327, shopDiscount: -63, netSales: 264,
+  marketingFee: -37.45, commPlatform: -39.6, commOther: -11.3, total: 175.65,
+}
+// GF-834: TCT sale 139 (wallet stream, no deductions) + its GP clawback row -13.39
+const gf834sale: GrabRow = {
+  ...base, txnId: '', orderCode: 'GF-834', longOrderId: 'lo2', payoutId: '',
+  paymentMethod: 'ไทยช่วยไทย', amount: 139, netSales: 139, total: 139,
+}
+const gf834gp: GrabRow = {
+  ...base, category: 'การปรับรายได้', subitem: 'Commission for Govt Campaign x TCT',
+  txnId: 't3', orderCode: 'GF-834', longOrderId: '', payoutId: 'PO-1', amount: 0, total: -13.39,
+}
+
+describe('buildGrabReceiptLines (ไฟล์รายรับ Grab → E-Wallet)', () => {
+  it('one receipt per order: gross into EWL, ref = GF code, customer = grab contact', () => {
+    const { lines, warnings } = buildGrabReceiptLines('2026-08-17', [rama9], [gf654, gf834sale, gf834gp])
+    expect(warnings).toEqual([])
+    expect(lines).toHaveLength(2) // adjustment row is NOT revenue
+    const [a, b] = lines
+    expect(a.ref).toBe('GF-654')
+    expect(a.amount).toBeCloseTo(327, 2)
+    expect(a.customer).toBe('C00072')
+    expect(a.paidBy).toBe('EWL001')
+    expect(a.classGroup).toBe('00001')
+    expect(a.docDate).toBe(20260817)
+    expect(a.description).toBe('Grab')
+    expect(b.ref).toBe('GF-834')
+    expect(b.amount).toBeCloseTo(139, 2)
+    expect(b.description).toBe('Grab ไทยช่วยไทย')
+    // workbook: D อ้างอิงถึง carries the GF code, K = 410101
+    const aoa: unknown[][] = XLSX.utils.sheet_to_json(peakReceiptWorkbook(lines).Sheets['Import_Receipt'], { header: 1 })
+    expect(aoa[1][3]).toBe('GF-654')
+    expect(aoa[1][4]).toBe('C00072')
+    expect(aoa[1][10]).toBe('410101')
+    expect(aoa[1][13]).toBe(327)
+    expect(aoa[1][17]).toBe('EWL001')
+  })
+
+  it('warns and skips when branch has no ewallet/contact yet', () => {
+    const { lines, warnings } = buildGrabReceiptLines('2026-08-17',
+      [{ ...rama9, grab_contact: null }], [gf654])
+    expect(lines).toHaveLength(0)
+    expect(warnings).toHaveLength(1)
+    expect(warnings[0]).toContain('Rama 9')
+  })
+})
+
+describe('buildGrabExpenseLines (ไฟล์ต้นทุน Grab ← E-Wallet)', () => {
+  it('matches Point sample: GF-654 doc of 4 lines totalling 151.35 + GF-834 GP doc of 13.39', () => {
+    const { lines, warnings } = buildGrabExpenseLines('2026-08-17', [rama9], [gf654, gf834sale, gf834gp])
+    expect(warnings).toEqual([])
+    const doc1 = lines.filter(l => l.seq === 1)
+    expect(doc1).toHaveLength(4)
+    expect(doc1.map(l => [l.description, l.amount])).toEqual([
+      ['ส่วนลดออกโดยร้านค้า', 63],
+      ['ค่าธรรมเนียมการตลาด', 37.45],
+      ['ค่าคอมมิชชั่นแพลตฟอร์ม', 39.6],
+      ['ค่าคอมมิชชั่นอื่นของ grab', 11.3],
+    ])
+    expect(doc1[0].account).toBe('510301')
+    expect(doc1[1].account).toBe('530504')
+    for (const l of doc1) {
+      expect(l.ref).toBe('GF-654')
+      expect(l.contact).toBe('C00072')
+      expect(l.paidBy).toBe('EWL001')
+      expect(l.docTotal).toBeCloseTo(151.35, 2)
+      expect(l.classGroup).toBe('00001')
+    }
+    const doc2 = lines.filter(l => l.seq === 2)
+    expect(doc2).toHaveLength(1)
+    expect(doc2[0].description).toBe('ค่าคอมมิชชั่นไทยช่วยไทย')
+    expect(doc2[0].amount).toBeCloseTo(13.39, 2)
+    expect(doc2[0].docTotal).toBeCloseTo(13.39, 2)
+    expect(doc2[0].ref).toBe('GF-834')
+    // conservation: revenue − costs = net receiving (175.65 + 139 − 13.39... already inside)
+    const rev = 327 + 139
+    const costs = lines.reduce((s, l) => s + l.amount, 0)
+    expect(rev - costs).toBeCloseTo(175.65 + 139 - 13.39, 2)
+  })
+
+  it('ads rows become their own expense docs on the cost account', () => {
+    const ads: GrabRow = {
+      ...base, category: 'โฆษณา', txnId: 'ad1', orderCode: '', longOrderId: '', payoutId: 'PO-1',
+      description: 'Manual Keywords', total: -53.5,
+    }
+    const { lines } = buildGrabExpenseLines('2026-08-17', [rama9], [ads])
+    expect(lines).toHaveLength(1)
+    expect(lines[0].description).toBe('โฆษณา Manual Keywords')
+    expect(lines[0].account).toBe('530504')
+    expect(lines[0].amount).toBeCloseTo(53.5, 2)
+    expect(lines[0].ref).toBe('ad1')
+  })
+
+  it('refund-labeled อื่นๆ = settlement shift → info only, no booking', () => {
+    const shift: GrabRow = {
+      ...base, category: 'การปรับรายได้', subitem: 'อื่นๆ', txnId: 't9', orderCode: 'GF-506',
+      longOrderId: '', payoutId: 'PO-1', description: 'TH6040 Refund Discount | GF-506', total: 48,
+    }
+    const { lines, warnings, info } = buildGrabExpenseLines('2026-08-17', [rama9], [gf834sale, shift])
+    expect(lines).toHaveLength(0)
+    expect(warnings).toEqual([])
+    expect(info).toHaveLength(1)
+    expect(info[0]).toContain('GF-506')
+  })
+
+  it('อื่นๆ without refund label: blank adj account → warning; set account → booked', () => {
+    const adj: GrabRow = {
+      ...base, category: 'การปรับรายได้', subitem: 'อื่นๆ', txnId: 't8', orderCode: '',
+      longOrderId: '', payoutId: 'PO-1', description: 'Adjustment', total: 100,
+    }
+    const blank = buildGrabExpenseLines('2026-08-17', [rama9], [adj])
+    expect(blank.lines).toHaveLength(0)
+    expect(blank.warnings.some(w => w.includes('grab_adj_account'))).toBe(true)
+    const booked = buildGrabExpenseLines('2026-08-17', [rama9], [adj],
+      { ...DEFAULT_GRAB_PEAK_CONFIG, adjAccount: '410199' })
+    expect(booked.lines).toHaveLength(1)
+    expect(booked.lines[0].account).toBe('410199')
+    expect(booked.lines[0].amount).toBeCloseTo(-100, 2) // credit → negative expense
+  })
+
+  it('warns loudly when WHT appears (no rule yet)', () => {
+    const withWht: GrabRow = { ...gf654, wht: -3.27, total: 172.38 }
+    const { warnings } = buildGrabExpenseLines('2026-08-17', [rama9], [withWht])
+    expect(warnings.some(w => w.includes('หัก ณ ที่จ่าย'))).toBe(true)
+  })
+
+  it('cancelled orders are skipped entirely', () => {
+    const cancelled: GrabRow = { ...base, category: 'ยกเลิก', amount: 0, total: 0, status: 'ยกเลิก' }
+    const rcp = buildGrabReceiptLines('2026-08-17', [rama9], [cancelled])
+    const exp = buildGrabExpenseLines('2026-08-17', [rama9], [cancelled])
+    expect(rcp.lines).toHaveLength(0)
+    expect(exp.lines).toHaveLength(0)
+  })
+
+  it('expense workbook matches the Import_Expenses template exactly', () => {
+    const { lines } = buildGrabExpenseLines('2026-08-17', [rama9], [gf654, gf834sale, gf834gp])
+    const aoa: unknown[][] = XLSX.utils.sheet_to_json(peakExpenseWorkbook(lines).Sheets['Import_Expenses'], { header: 1 })
+    expect(aoa[0][0]).toBe('ลำดับที่* ')
+    expect(aoa[0][3]).toBe('ผู้รับเงิน/คู่ค้า')
+    expect(aoa[0][16]).toBe('ชำระโดย')
+    expect(aoa[0][17]).toBe('จำนวนเงินที่ชำระ')
+    expect(aoa[0][20]).toBe('กลุ่มจัดประเภท')
+    // row 2 = first line of doc 1 (per Point's sample values)
+    expect(aoa[1][0]).toBe(1)          // A ลำดับที่
+    expect(aoa[1][1]).toBe(20260817)   // B YYYYMMDD
+    expect(aoa[1][2]).toBe('GF-654')   // C อ้างอิงถึง
+    expect(aoa[1][3]).toBe('C00072')   // D ผู้รับเงิน
+    expect(aoa[1][9]).toBe(2)          // J รวมภาษี
+    expect(aoa[1][10]).toBe('510301')  // K
+    expect(aoa[1][11]).toBe('ส่วนลดออกโดยร้านค้า')
+    expect(aoa[1][12]).toBe(1)         // M จำนวน
+    expect(aoa[1][13]).toBe(63)        // N
+    expect(aoa[1][14]).toBe(0.07)      // O
+    expect(aoa[1][16]).toBe('EWL001')  // Q
+    expect(aoa[1][17]).toBe(151.35)    // R ยอดเอกสาร
+    expect(aoa[1][20]).toBe('00001')   // U
+    // GP doc row
+    expect(aoa[5][0]).toBe(2)
+    expect(aoa[5][13]).toBe(13.39)
+    expect(aoa[5][17]).toBe(13.39)
+  })
+})

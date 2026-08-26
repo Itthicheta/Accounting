@@ -1,13 +1,15 @@
 import { useEffect, useState } from 'react'
 import { sb, type Branch } from '../lib/supabase'
-import { DEFAULT_PEAK_CONFIG } from '../lib/peakExport'
+import { DEFAULT_PEAK_CONFIG, DEFAULT_GRAB_PEAK_CONFIG } from '../lib/peakExport'
 
-type Editable = Pick<Branch, 'peak_customer' | 'peak_bank_sub' | 'tungngern_peak_sub' | 'peak_class' | 'grab_store_id'>
+type Editable = Pick<Branch, 'peak_customer' | 'peak_bank_sub' | 'tungngern_peak_sub' | 'peak_class' | 'ewallet' | 'grab_contact' | 'grab_store_id'>
 const FIELDS: { key: keyof Editable; label: string; width?: number }[] = [
-  { key: 'peak_customer', label: 'ลูกค้า (E)', width: 90 },
+  { key: 'peak_customer', label: 'ลูกค้า POS (E)', width: 90 },
   { key: 'peak_bank_sub', label: 'บัญชีธนาคาร (R)', width: 100 },
   { key: 'tungngern_peak_sub', label: 'บัญชีถุงเงิน (R)', width: 100 },
-  { key: 'peak_class', label: 'กลุ่มจัดประเภท (T)', width: 100 },
+  { key: 'peak_class', label: 'กลุ่มจัดประเภท (T/U)', width: 100 },
+  { key: 'ewallet', label: 'E-Wallet Grab (Q/R)', width: 100 },
+  { key: 'grab_contact', label: 'ผู้ติดต่อ Grab (D/E)', width: 90 },
   { key: 'grab_store_id', label: 'Grab store id', width: 260 },
 ]
 
@@ -17,6 +19,9 @@ const SETTING_META: { key: string; label: string }[] = [
   { key: 'peak_price_type', label: 'ประเภทราคา (I): 1=แยกภาษี 2=รวมภาษี 3=ไม่มีภาษี' },
   { key: 'peak_tax_invoice', label: 'ออกใบกำกับภาษี (H): 1=ออก 2=ไม่ออก' },
   { key: 'peak_qty', label: 'จำนวน (M) — คงที่' },
+  { key: 'grab_discount_account', label: 'บัญชีส่วนลดออกโดยร้าน (K ไฟล์ต้นทุน Grab)' },
+  { key: 'grab_cost_account', label: 'บัญชีค่าคอม/ค่าธรรมเนียม/โฆษณา Grab (K)' },
+  { key: 'grab_adj_account', label: 'บัญชีการปรับรายได้อื่นๆ (ว่าง = ยังไม่บันทึก)' },
 ]
 
 export default function Config() {
@@ -55,7 +60,8 @@ export default function Config() {
       }
       for (const m of SETTING_META) {
         const value = (settings[m.key] ?? '').trim()
-        if (!value) continue
+        // ว่างมีความหมายเฉพาะ grab_adj_account (= ยังไม่บันทึกรายการปรับรายได้)
+        if (!value && m.key !== 'grab_adj_account') continue
         const { error } = await sb.from('app_settings').upsert({ key: m.key, value }, { onConflict: 'key' })
         if (error) throw error
       }
@@ -115,10 +121,16 @@ export default function Config() {
                 style={{ width: 150, opacity: editing ? 1 : 0.75, background: editing ? '#fff' : 'transparent', borderColor: editing ? 'var(--border)' : 'transparent' }}
                 disabled={!editing}
                 value={settings[m.key] ?? ''}
-                placeholder={String(DEFAULT_PEAK_CONFIG[
-                  m.key === 'peak_revenue_account' ? 'revenueAccount'
-                    : m.key === 'peak_vat_rate' ? 'vatRate'
-                      : m.key === 'peak_price_type' ? 'priceType' : 'taxInvoice'])}
+                placeholder={{
+                  peak_revenue_account: String(DEFAULT_PEAK_CONFIG.revenueAccount),
+                  peak_vat_rate: String(DEFAULT_PEAK_CONFIG.vatRate),
+                  peak_price_type: String(DEFAULT_PEAK_CONFIG.priceType),
+                  peak_tax_invoice: String(DEFAULT_PEAK_CONFIG.taxInvoice),
+                  peak_qty: String(DEFAULT_PEAK_CONFIG.qty),
+                  grab_discount_account: DEFAULT_GRAB_PEAK_CONFIG.discountAccount,
+                  grab_cost_account: DEFAULT_GRAB_PEAK_CONFIG.costAccount,
+                  grab_adj_account: 'ว่าง = ไม่บันทึก',
+                }[m.key] ?? ''}
                 onChange={e => setSettings(s => ({ ...s, [m.key]: e.target.value }))}
               />
             </div>
