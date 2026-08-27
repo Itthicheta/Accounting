@@ -398,6 +398,15 @@ export function buildGrabExpenseLines(
   return { lines, warnings, info }
 }
 
+/**
+ * Merge receipt-line groups into ONE Import_Receipt file (Point 2026-08-26:
+ * POS/Catering and per-order Grab revenue share the exact same template, so
+ * upload once). Renumbers ลำดับที่ 1..n across all groups.
+ */
+export function mergeReceiptLines(...groups: PeakReceiptLine[][]): PeakReceiptLine[] {
+  return groups.flat().map((l, i) => ({ ...l, seq: i + 1 }))
+}
+
 const EXPENSE_HEADERS = [
   'ลำดับที่* ', 'วันที่เอกสาร', 'อ้างอิงถึง', 'ผู้รับเงิน/คู่ค้า',
   'เลขทะเบียน 13 หลัก', 'เลขสาขา 5 หลัก', 'เลขที่ใบกำกับฯ (ถ้ามี)',

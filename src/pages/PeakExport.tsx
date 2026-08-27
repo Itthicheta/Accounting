@@ -5,7 +5,8 @@ import { reconByBranch, COMPANY } from '../lib/grabCalc'
 import { dbToGrabRow } from '../lib/grabIngest'
 import {
   buildPeakReceiptLines, buildPosLines, buildGrabReceiptLines, buildGrabExpenseLines,
-  peakReceiptWorkbook, peakExpenseWorkbook, DEFAULT_PEAK_CONFIG, DEFAULT_GRAB_PEAK_CONFIG,
+  mergeReceiptLines, peakReceiptWorkbook, peakExpenseWorkbook,
+  DEFAULT_PEAK_CONFIG, DEFAULT_GRAB_PEAK_CONFIG,
   type PeakConfig, type GrabPeakConfig, type CateringLine, type PeakReceiptLine,
   type PeakExpenseLine, type PosViewRow,
 } from '../lib/peakExport'
@@ -105,11 +106,14 @@ export default function PeakExport() {
         })
       }
 
-      setPosLines(f1.lines)
-      setGrabRevLines(f2.lines)
+      // ONE receipt file daily (Point 2026-08-26): POS + Catering + Grab rows share
+      // the same Import_Receipt template — merge with continuous ลำดับที่
+      const merged = mergeReceiptLines(f1.lines, f2.lines)
+      setPosLines(merged.slice(0, f1.lines.length))
+      setGrabRevLines(merged.slice(f1.lines.length))
       setGrabExpLines(f3.lines)
       setWallet(wrows)
-      const sizeWarn = [f2.lines, f3.lines].some(l => l.length > 1000)
+      const sizeWarn = [merged, f3.lines].some(l => l.length > 1000)
         ? ['ไฟล์เกิน 1,000 บรรทัด — Peak รับสูงสุด 1,000 บรรทัดต่อไฟล์ ต้องแบ่งไฟล์ (แจ้ง Point)'] : []
       setWarnings([...pos.warnings, ...f1.warnings, ...f2.warnings, ...f3.warnings, ...sizeWarn])
       setInfo(f3.info)
@@ -121,13 +125,11 @@ export default function PeakExport() {
 
   useEffect(() => { if (branches.length) load() }, [branches.length, day])
 
-  const dl = (kind: 'pos' | 'grabrev' | 'grabexp') => {
-    if (kind === 'grabexp') {
+  const dl = (kind: 'receipt' | 'expense') => {
+    if (kind === 'expense') {
       XLSX.writeFile(peakExpenseWorkbook(grabExpLines, config), `PEAK_ImportExpense_Grab_${day}.xlsx`)
-    } else if (kind === 'grabrev') {
-      XLSX.writeFile(peakReceiptWorkbook(grabRevLines, config), `PEAK_ImportReceipt_Grab_${day}.xlsx`)
     } else {
-      XLSX.writeFile(peakReceiptWorkbook(posLines, config), `PEAK_ImportReceipt_POS_${day}.xlsx`)
+      XLSX.writeFile(peakReceiptWorkbook([...posLines, ...grabRevLines], config), `PEAK_ImportReceipt_${day}.xlsx`)
     }
   }
 
@@ -136,11 +138,11 @@ export default function PeakExport() {
 
   return (
     <div>
-      <h1>Peak — Export รายวัน (3 ไฟล์)</h1>
+      <h1>Peak — Export รายวัน (2 ไฟล์)</h1>
       <p className="muted">
-        ไฟล์ 1: ยอดขายหน้าร้าน (POS + Catering) เข้าบัญชีธนาคาร/ถุงเงินของสาขา ·
-        ไฟล์ 2: รายรับ Grab รายออเดอร์เข้า E-Wallet ของสาขา ·
-        ไฟล์ 3: ต้นทุน Grab รายออเดอร์จ่ายออกจาก E-Wallet —
+        ไฟล์รายรับ (Import_Receipt ไฟล์เดียว): ยอดขายหน้าร้าน POS + Catering เข้าบัญชีธนาคาร/ถุงเงิน
+        และรายรับ Grab รายออเดอร์เข้า E-Wallet ของสาขา ·
+        ไฟล์ต้นทุน (Import_Expenses): ต้นทุน Grab รายออเดอร์จ่ายออกจาก E-Wallet —
         จากนั้นพนักงานคีย์โอนเงินออกจาก E-Wallet → ธนาคาร/ถุงเงินใน Peak เองตอนเงินเข้า
       </p>
       <div className="card row">
@@ -152,14 +154,11 @@ export default function PeakExport() {
       {info.map((w, i) => <div key={i} className="banner" style={{ background: 'var(--card)', border: '1px solid var(--border)' }}>ℹ️ {w}</div>)}
 
       <div className="card row" style={{ gap: 12, flexWrap: 'wrap' }}>
-        <button className="primary" onClick={() => dl('pos')} disabled={busy || posLines.length === 0}>
-          1) ไฟล์ POS + Catering ({posLines.length} บรรทัด · {fmt(sum(posLines))})
+        <button className="primary" onClick={() => dl('receipt')} disabled={busy || (posLines.length === 0 && grabRevLines.length === 0)}>
+          1) ไฟล์รายรับ — POS+Catering {posLines.length} บรรทัด + Grab {grabRevLines.length} ออเดอร์ · {fmt(sum(posLines) + sum(grabRevLines))}
         </button>
-        <button className="primary" onClick={() => dl('grabrev')} disabled={busy || grabRevLines.length === 0}>
-          2) รายรับ Grab → E-Wallet ({grabRevLines.length} ออเดอร์ · {fmt(sum(grabRevLines))})
-        </button>
-        <button className="primary" onClick={() => dl('grabexp')} disabled={busy || grabExpLines.length === 0}>
-          3) ต้นทุน Grab ← E-Wallet ({grabDocCount} เอกสาร · {fmt(sum(grabExpLines))})
+        <button className="primary" onClick={() => dl('expense')} disabled={busy || grabExpLines.length === 0}>
+          2) ไฟล์ต้นทุน Grab ← E-Wallet ({grabDocCount} เอกสาร · {fmt(sum(grabExpLines))})
         </button>
       </div>
 
@@ -197,7 +196,7 @@ export default function PeakExport() {
 
       {posLines.length > 0 && (
         <div className="card scroll-x">
-          <h2>ไฟล์ 1 — POS + Catering ({posLines.length} บรรทัด)</h2>
+          <h2>ไฟล์รายรับ · ส่วน POS + Catering ({posLines.length} บรรทัด)</h2>
           <table className="data">
             <thead>
               <tr><th>ลำดับ</th><th>ลูกค้า</th><th>คำอธิบาย</th><th>จำนวนเงิน (รวม VAT)</th><th>รับชำระโดย</th><th>หมายเหตุ</th><th>กลุ่ม</th></tr>
@@ -224,7 +223,7 @@ export default function PeakExport() {
         <div className="card scroll-x">
           <details>
             <summary style={{ cursor: 'pointer', fontWeight: 600 }}>
-              ไฟล์ 2 — รายรับ Grab รายออเดอร์ ({grabRevLines.length} บรรทัด · รวม {fmt(sum(grabRevLines))}) — คลิกเพื่อดูรายบรรทัด
+              ไฟล์รายรับ · ส่วน Grab รายออเดอร์ ({grabRevLines.length} บรรทัด · รวม {fmt(sum(grabRevLines))}) — คลิกเพื่อดูรายบรรทัด
             </summary>
             <table className="data" style={{ marginTop: 10 }}>
               <thead>
@@ -252,7 +251,7 @@ export default function PeakExport() {
         <div className="card scroll-x">
           <details>
             <summary style={{ cursor: 'pointer', fontWeight: 600 }}>
-              ไฟล์ 3 — ต้นทุน Grab ({grabDocCount} เอกสาร · {grabExpLines.length} บรรทัด · รวม {fmt(sum(grabExpLines))}) — คลิกเพื่อดูรายบรรทัด
+              ไฟล์ต้นทุน Grab ({grabDocCount} เอกสาร · {grabExpLines.length} บรรทัด · รวม {fmt(sum(grabExpLines))}) — คลิกเพื่อดูรายบรรทัด
             </summary>
             <table className="data" style={{ marginTop: 10 }}>
               <thead>

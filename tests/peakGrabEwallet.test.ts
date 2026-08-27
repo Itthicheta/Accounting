@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest'
 import * as XLSX from 'xlsx'
 import {
-  buildGrabReceiptLines, buildGrabExpenseLines, peakExpenseWorkbook, peakReceiptWorkbook,
+  buildGrabReceiptLines, buildGrabExpenseLines, mergeReceiptLines,
+  peakExpenseWorkbook, peakReceiptWorkbook, buildPeakReceiptLines,
   DEFAULT_GRAB_PEAK_CONFIG,
 } from '../src/lib/peakExport'
 import type { GrabRow } from '../src/lib/grabParser'
@@ -71,6 +72,29 @@ describe('buildGrabReceiptLines (ไฟล์รายรับ Grab → E-Walle
     expect(lines).toHaveLength(0)
     expect(warnings).toHaveLength(1)
     expect(warnings[0]).toContain('Rama 9')
+  })
+})
+
+describe('mergeReceiptLines (Point 2026-08-26: ONE receipt file daily)', () => {
+  it('POS/Catering + Grab lines merge with continuous ลำดับที่, values untouched', () => {
+    const pos = buildPeakReceiptLines('2026-08-17', [rama9], [], [
+      { branchCode: 'rama9', name: 'งานเลี้ยง A', netReceiving: 5000 },
+    ]).lines
+    const grab = buildGrabReceiptLines('2026-08-17', [rama9], [gf654, gf834sale]).lines
+    const merged = mergeReceiptLines(pos, grab)
+    expect(merged).toHaveLength(3)
+    expect(merged.map(l => l.seq)).toEqual([1, 2, 3])
+    expect(merged[0].paidBy).toBe('BSV004')       // catering → bank, no ref
+    expect(merged[0].ref ?? '').toBe('')
+    expect(merged[1].ref).toBe('GF-654')          // grab rows keep ref + wallet
+    expect(merged[1].paidBy).toBe('EWL001')
+    expect(merged[2].amount).toBeCloseTo(139, 2)
+    // single workbook holds both kinds of rows
+    const aoa: unknown[][] = XLSX.utils.sheet_to_json(peakReceiptWorkbook(merged).Sheets['Import_Receipt'], { header: 1 })
+    expect(aoa).toHaveLength(4)
+    expect(aoa[1][17]).toBe('BSV004')
+    expect(aoa[2][17]).toBe('EWL001')
+    expect(aoa[2][3]).toBe('GF-654')
   })
 })
 
