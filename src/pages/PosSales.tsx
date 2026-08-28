@@ -194,7 +194,7 @@ export default function PosSales() {
         <div className="kpis"><div className="kpi"><div className="v">{fmt(grand)}</div><div className="l">รวมทุกสาขา</div></div></div>
       )}
       {blocks.length === 0 && !busy && !error && (
-        <div className="banner warn">ไม่มีข้อมูล POS สำหรับวันที่นี้ (สาขาที่ sync แล้ว: Gaysorn, Sathorn Square)</div>
+        <div className="banner warn">ไม่มีข้อมูล POS สำหรับวันที่นี้ (สาขาที่ sync แล้ว: {posBranches.map(b => b.name_en).join(', ')})</div>
       )}
     </div>
   )
