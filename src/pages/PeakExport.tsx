@@ -62,6 +62,9 @@ export default function PeakExport() {
 
   const byStoreId = new Map(branches.filter(b => b.grab_store_id).map(b => [b.grab_store_id!, b]))
   const byLocation = new Map(branches.filter(b => b.pos_location_id).map(b => [b.pos_location_id!, b.code]))
+  // display-only branch name per line (via its unique class group) — NOT exported to excel
+  const branchByClass = new Map(branches.filter(b => b.peak_class).map(b => [b.peak_class!, b.name_en]))
+  const branchOf = (classGroup: string) => branchByClass.get(classGroup) ?? '—'
 
   async function load() {
     setBusy(true); setError('')
@@ -213,16 +216,16 @@ export default function PeakExport() {
       {wallet.length > 0 && (
         <div className="card scroll-x">
           <h2>เช็ค E-Wallet (Grab {thDate(grabDay)}) — หลังคีย์โอนออกครบ ยอดคงเหลือควรเป็น 0</h2>
-          <table className="data">
+          <table className="data center">
             <thead>
-              <tr><th style={{ textAlign: 'left' }}>สาขา</th><th>E-Wallet</th>
+              <tr><th>สาขา</th><th>E-Wallet</th>
                 <th>เข้า (ยอดขาย Grab)</th><th>ออก (ต้นทุน)</th>
                 <th>โอนออก→ธนาคาร (คำนวณ)</th><th>โอนออก→ถุงเงิน (TCT)</th><th>คงเหลือ</th></tr>
             </thead>
             <tbody>
               {wallet.map(w => (
                 <tr key={w.ewallet}>
-                  <td style={{ textAlign: 'left' }}>{w.branch}</td>
+                  <td>{w.branch}</td>
                   <td>{w.ewallet}</td>
                   <td>{fmt(w.revenue)}</td>
                   <td>{fmt(w.costs)}</td>
@@ -246,23 +249,24 @@ export default function PeakExport() {
       {posLines.length > 0 && (
         <div className="card scroll-x">
           <h2>ไฟล์รายรับ · ส่วนหน้าร้าน + Catering — วันที่ขาย {thDate(instoreDay)} ({posLines.length} บรรทัด)</h2>
-          <table className="data">
+          <table className="data center">
             <thead>
-              <tr><th>ลำดับ</th><th>ลูกค้า</th><th>คำอธิบาย</th><th>จำนวนเงิน (รวม VAT)</th><th>รับชำระโดย</th><th>หมายเหตุ</th><th>กลุ่ม</th></tr>
+              <tr><th>ลำดับ</th><th>สาขา</th><th>ลูกค้า</th><th>คำอธิบาย</th><th>จำนวนเงิน (รวม VAT)</th><th>รับชำระโดย</th><th>หมายเหตุ</th><th>กลุ่ม</th></tr>
             </thead>
             <tbody>
               {posLines.map(l => (
                 <tr key={l.seq}>
                   <td>{l.seq}</td>
-                  <td style={{ textAlign: 'left' }}>{l.customer}</td>
-                  <td style={{ textAlign: 'left' }}>{l.description}</td>
+                  <td>{branchOf(l.classGroup)}</td>
+                  <td>{l.customer}</td>
+                  <td>{l.description}</td>
                   <td style={{ color: l.amount < 0 ? 'var(--danger)' : 'inherit' }}>{fmt(l.amount)}</td>
-                  <td style={{ textAlign: 'left' }}>{l.paidBy}</td>
-                  <td style={{ textAlign: 'left' }}>{l.note}</td>
-                  <td style={{ textAlign: 'left' }}>{l.classGroup}</td>
+                  <td>{l.paidBy}</td>
+                  <td>{l.note}</td>
+                  <td>{l.classGroup}</td>
                 </tr>
               ))}
-              <tr className="total"><td colSpan={3} style={{ textAlign: 'left' }}>รวม</td><td>{fmt(sum(posLines))}</td><td colSpan={3}></td></tr>
+              <tr className="total"><td colSpan={4}>รวม</td><td>{fmt(sum(posLines))}</td><td colSpan={3}></td></tr>
             </tbody>
           </table>
         </div>
@@ -274,20 +278,21 @@ export default function PeakExport() {
             <summary style={{ cursor: 'pointer', fontWeight: 600 }}>
               ไฟล์รายรับ · ส่วน Grab รายออเดอร์ — วันที่ขาย {thDate(grabDay)} ({grabRevLines.length} บรรทัด · รวม {fmt(sum(grabRevLines))}) — คลิกเพื่อดูรายบรรทัด
             </summary>
-            <table className="data" style={{ marginTop: 10 }}>
+            <table className="data center" style={{ marginTop: 10 }}>
               <thead>
-                <tr><th>ลำดับ</th><th>อ้างอิง</th><th>ลูกค้า</th><th>คำอธิบาย</th><th>จำนวนเงิน</th><th>รับชำระโดย</th><th>กลุ่ม</th></tr>
+                <tr><th>ลำดับ</th><th>สาขา</th><th>อ้างอิง</th><th>ลูกค้า</th><th>คำอธิบาย</th><th>จำนวนเงิน</th><th>รับชำระโดย</th><th>กลุ่ม</th></tr>
               </thead>
               <tbody>
                 {grabRevLines.map(l => (
                   <tr key={l.seq}>
                     <td>{l.seq}</td>
-                    <td style={{ textAlign: 'left' }}>{l.ref}</td>
-                    <td style={{ textAlign: 'left' }}>{l.customer}</td>
-                    <td style={{ textAlign: 'left' }}>{l.description}</td>
+                    <td>{branchOf(l.classGroup)}</td>
+                    <td>{l.ref}</td>
+                    <td>{l.customer}</td>
+                    <td>{l.description}</td>
                     <td>{fmt(l.amount)}</td>
-                    <td style={{ textAlign: 'left' }}>{l.paidBy}</td>
-                    <td style={{ textAlign: 'left' }}>{l.classGroup}</td>
+                    <td>{l.paidBy}</td>
+                    <td>{l.classGroup}</td>
                   </tr>
                 ))}
               </tbody>
@@ -302,22 +307,23 @@ export default function PeakExport() {
             <summary style={{ cursor: 'pointer', fontWeight: 600 }}>
               ไฟล์ต้นทุน Grab — วันที่ขาย {thDate(grabDay)} ({grabDocCount} เอกสาร · {grabExpLines.length} บรรทัด · รวม {fmt(sum(grabExpLines))}) — คลิกเพื่อดูรายบรรทัด
             </summary>
-            <table className="data" style={{ marginTop: 10 }}>
+            <table className="data center" style={{ marginTop: 10 }}>
               <thead>
-                <tr><th>เอกสาร</th><th>อ้างอิง</th><th>คู่ค้า</th><th>บัญชี</th><th>คำอธิบาย</th><th>จำนวนเงิน</th><th>ชำระโดย</th><th>ยอดเอกสาร</th><th>กลุ่ม</th></tr>
+                <tr><th>เอกสาร</th><th>สาขา</th><th>อ้างอิง</th><th>คู่ค้า</th><th>บัญชี</th><th>คำอธิบาย</th><th>จำนวนเงิน</th><th>ชำระโดย</th><th>ยอดเอกสาร</th><th>กลุ่ม</th></tr>
               </thead>
               <tbody>
                 {grabExpLines.map((l, i) => (
                   <tr key={i}>
                     <td>{l.seq}</td>
-                    <td style={{ textAlign: 'left' }}>{l.ref}</td>
-                    <td style={{ textAlign: 'left' }}>{l.contact}</td>
+                    <td>{branchOf(l.classGroup)}</td>
+                    <td>{l.ref}</td>
+                    <td>{l.contact}</td>
                     <td>{l.account}</td>
-                    <td style={{ textAlign: 'left' }}>{l.description}</td>
+                    <td>{l.description}</td>
                     <td style={{ color: l.amount < 0 ? 'var(--danger)' : 'inherit' }}>{fmt(l.amount)}</td>
-                    <td style={{ textAlign: 'left' }}>{l.paidBy}</td>
+                    <td>{l.paidBy}</td>
                     <td>{fmt(l.docTotal)}</td>
-                    <td style={{ textAlign: 'left' }}>{l.classGroup}</td>
+                    <td>{l.classGroup}</td>
                   </tr>
                 ))}
               </tbody>
