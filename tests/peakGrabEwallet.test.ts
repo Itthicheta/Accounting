@@ -174,6 +174,34 @@ describe('buildGrabExpenseLines (ไฟล์ต้นทุน Grab ← E-Walle
     expect(lines[0].description).toContain('ยอดเรียกคืน')
   })
 
+  it('cancelled-order claim: value books as revenue, its commission as 520220 (GF-804 case)', () => {
+    const claimValue: GrabRow = {
+      ...base, category: 'การปรับรายได้', subitem: 'ชดเชยคำสั่งซื้อที่ถูกยกเลิก',
+      txnId: 'c1', orderCode: 'GF-804', longOrderId: '', payoutId: 'PO-1', amount: 0,
+      total: 189, description: '[CLAIM] 02-08-2026 Order Value',
+    }
+    const claimFee: GrabRow = {
+      ...base, category: 'การปรับรายได้', subitem: 'ค่าคอมมิชชันจากคำสั่งซื้อที่ถูกยกเลิก (รวมภาษีมูลค่าเพิ่ม)',
+      txnId: 'c2', orderCode: 'GF-804', longOrderId: '', payoutId: 'PO-1', amount: 0,
+      total: -18.2, description: '[CLAIM] 02-08-2026 Service Fee Incl VAT',
+    }
+    const rcp = buildGrabReceiptLines('2026-08-04', [rama9], [claimValue, claimFee])
+    expect(rcp.warnings).toEqual([])
+    expect(rcp.lines).toHaveLength(1)
+    expect(rcp.lines[0].amount).toBeCloseTo(189, 2)
+    expect(rcp.lines[0].description).toBe('Grab ชดเชยคำสั่งซื้อที่ถูกยกเลิก')
+    expect(rcp.lines[0].ref).toBe('GF-804')
+    expect(rcp.lines[0].paidBy).toBe('EWL001')
+    const exp = buildGrabExpenseLines('2026-08-04', [rama9], [claimValue, claimFee])
+    expect(exp.warnings).toEqual([])
+    expect(exp.lines).toHaveLength(1)
+    expect(exp.lines[0].account).toBe('520220')
+    expect(exp.lines[0].amount).toBeCloseTo(18.2, 2)
+    expect(exp.lines[0].ref).toBe('GF-804')
+    // conservation: 189 in − 18.2 out = 170.80 = what the settlement carries
+    expect(rcp.lines[0].amount - exp.lines[0].amount).toBeCloseTo(170.8, 2)
+  })
+
   it('อื่นๆ without refund label: blank adj account → warning; set account → booked', () => {
     const adj: GrabRow = {
       ...base, category: 'การปรับรายได้', subitem: 'อื่นๆ', txnId: 't8', orderCode: '',

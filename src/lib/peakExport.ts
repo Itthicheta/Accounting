@@ -290,11 +290,15 @@ export function buildGrabReceiptLines(
   const byStoreId = new Map(branches.filter(b => b.grab_store_id).map(b => [b.grab_store_id!, b]))
   let seq = 1
   for (const r of rows) {
-    if (r.category !== 'ชำระเงิน') continue
-    if (Math.abs(r.amount) <= 0.005) continue
+    // cancelled-order claims (Grab pays the merchant the order value) book as
+    // normal Grab revenue into the wallet — Point 2026-08-28
+    const isClaim = r.category === 'การปรับรายได้' && r.subitem.startsWith('ชดเชยคำสั่งซื้อ')
+    if (r.category !== 'ชำระเงิน' && !isClaim) continue
+    const amount = isClaim ? r.total : r.amount
+    if (Math.abs(amount) <= 0.005) continue
     const b = byStoreId.get(r.grabStoreId)
     if (!b || !b.ewallet || !b.grab_contact || !b.peak_class) {
-      noteIssue(missing, b?.name_en ?? r.storeName, r.amount)
+      noteIssue(missing, b?.name_en ?? r.storeName, amount)
       continue
     }
     lines.push({
@@ -302,8 +306,8 @@ export function buildGrabReceiptLines(
       ref: r.orderCode,
       customer: b.grab_contact,
       account: config.revenueAccount,
-      description: isBankSale(r) ? 'Grab' : 'Grab ไทยช่วยไทย',
-      amount: r2(r.amount),
+      description: isClaim ? 'Grab ชดเชยคำสั่งซื้อที่ถูกยกเลิก' : isBankSale(r) ? 'Grab' : 'Grab ไทยช่วยไทย',
+      amount: r2(amount),
       paidBy: b.ewallet,
       note: '',
       classGroup: b.peak_class,
@@ -389,6 +393,13 @@ export function buildGrabExpenseLines(
       if (r.subitem.startsWith('Commission for Govt Campaign')) {
         if (!ready) { noteIssue(missing, b?.name_en ?? r.storeName, r.total); continue }
         pushDoc(b!, r.orderCode, [{ account: cfg.commissionAccount, label: 'ค่าคอมมิชชั่นไทยช่วยไทย', amount: r2(-r.total) }])
+      } else if (r.subitem.startsWith('ชดเชยคำสั่งซื้อ')) {
+        // claim VALUE — booked as revenue in the receipt file, not a cost
+        continue
+      } else if (r.subitem.startsWith('ค่าคอมมิชชันจากคำสั่งซื้อ')) {
+        // commission Grab charges on the cancelled-order claim → 520220
+        if (!ready) { noteIssue(missing, b?.name_en ?? r.storeName, r.total); continue }
+        pushDoc(b!, r.orderCode || r.txnId, [{ account: cfg.commissionAccount, label: r.subitem, amount: r2(-r.total) }])
       } else if (r.subitem.startsWith('หักเงินเพื่อชดเชย')) {
         // customer-complaint clawback (ยอดเรียกคืน) — Grab refunds the customer out of
         // our settlement; books as contra-revenue per Point (410303)
