@@ -110,8 +110,10 @@ describe('buildGrabExpenseLines (ไฟล์ต้นทุน Grab ← E-Walle
       ['ค่าคอมมิชชั่นแพลตฟอร์ม', 39.6],
       ['ค่าคอมมิชชั่นอื่นของ grab', 11.3],
     ])
-    expect(doc1[0].account).toBe('510301')
-    expect(doc1[1].account).toBe('530504')
+    expect(doc1[0].account).toBe('410302')  // ส่วนลด → contra-revenue (chart 2026-08-28)
+    expect(doc1[1].account).toBe('520219')  // marketing
+    expect(doc1[2].account).toBe('520220')  // platform commission
+    expect(doc1[3].account).toBe('520220')  // other commission
     for (const l of doc1) {
       expect(l.ref).toBe('GF-654')
       expect(l.contact).toBe('C00072')
@@ -121,6 +123,7 @@ describe('buildGrabExpenseLines (ไฟล์ต้นทุน Grab ← E-Walle
     }
     const doc2 = lines.filter(l => l.seq === 2)
     expect(doc2).toHaveLength(1)
+    expect(doc2[0].account).toBe('520220')
     expect(doc2[0].description).toBe('ค่าคอมมิชชั่นไทยช่วยไทย')
     expect(doc2[0].amount).toBeCloseTo(13.39, 2)
     expect(doc2[0].docTotal).toBeCloseTo(13.39, 2)
@@ -139,7 +142,7 @@ describe('buildGrabExpenseLines (ไฟล์ต้นทุน Grab ← E-Walle
     const { lines } = buildGrabExpenseLines('2026-08-17', [rama9], [ads])
     expect(lines).toHaveLength(1)
     expect(lines[0].description).toBe('โฆษณา Manual Keywords')
-    expect(lines[0].account).toBe('530504')
+    expect(lines[0].account).toBe('520219')
     expect(lines[0].amount).toBeCloseTo(53.5, 2)
     expect(lines[0].ref).toBe('ad1')
   })
@@ -154,6 +157,21 @@ describe('buildGrabExpenseLines (ไฟล์ต้นทุน Grab ← E-Walle
     expect(warnings).toEqual([])
     expect(info).toHaveLength(1)
     expect(info[0]).toContain('GF-506')
+  })
+
+  it('หักเงินเพื่อชดเชยผู้สั่งซื้อ (ยอดเรียกคืน) books to 410303 — the Park Silom 22/08 case', () => {
+    const clawback: GrabRow = {
+      ...base, category: 'การปรับรายได้', subitem: 'หักเงินเพื่อชดเชยผู้สั่งซื้อ',
+      txnId: 't7', orderCode: 'GF-531', longOrderId: '', payoutId: 'PO-1', amount: -139,
+      total: -139, description: 'ยอดเรียกคืน เนื่องจากการร้องเรียนของลูกค้าเมื่อ 21-08-2026*',
+    }
+    const { lines, warnings } = buildGrabExpenseLines('2026-08-22', [rama9], [clawback])
+    expect(warnings).toEqual([])
+    expect(lines).toHaveLength(1)
+    expect(lines[0].account).toBe('410303')
+    expect(lines[0].amount).toBeCloseTo(139, 2)
+    expect(lines[0].ref).toBe('GF-531')
+    expect(lines[0].description).toContain('ยอดเรียกคืน')
   })
 
   it('อื่นๆ without refund label: blank adj account → warning; set account → booked', () => {
@@ -199,7 +217,7 @@ describe('buildGrabExpenseLines (ไฟล์ต้นทุน Grab ← E-Walle
     expect(aoa[1][2]).toBe('GF-654')   // C อ้างอิงถึง
     expect(aoa[1][3]).toBe('C00072')   // D ผู้รับเงิน
     expect(aoa[1][9]).toBe(2)          // J รวมภาษี
-    expect(aoa[1][10]).toBe('510301')  // K
+    expect(aoa[1][10]).toBe('410302')  // K
     expect(aoa[1][11]).toBe('ส่วนลดออกโดยร้านค้า')
     expect(aoa[1][12]).toBe(1)         // M จำนวน
     expect(aoa[1][13]).toBe(63)        // N

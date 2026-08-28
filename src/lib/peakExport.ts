@@ -227,13 +227,22 @@ export function peakReceiptWorkbook(lines: PeakReceiptLine[], config: PeakConfig
 // forward when costs exceed the day's normal-order net.
 // ---------------------------------------------------------------------------
 
+/** Per-cost-type Peak accounts (Point's revised chart, 2026-08-28). */
 export type GrabPeakConfig = {
-  discountAccount: string  // K ส่วนลดออกโดยร้าน (510301 per Point; Sheet1 shows 510310)
-  costAccount: string      // K ทุกค่าคอม/ค่าธรรมเนียม/โฆษณา (530504 for now)
-  adjAccount: string       // K การปรับรายได้อื่นๆ — '' = ยังไม่บันทึก (เตือนแทน)
+  discountAccount: string          // ส่วนลด (ออกโดยร้าน) — 410302 contra-revenue
+  deliveryDiscountAccount: string  // ส่วนลดค่าจัดส่ง (ออกโดยร้าน) — 520219
+  marketingAccount: string         // ค่าธรรมเนียมการตลาด — 520219
+  commissionAccount: string        // ค่าคอมทุกประเภท รวมไทยช่วยไทย — 520220
+  mdrAccount: string               // MDR / ค่าธรรมเนียม Grab — 520220
+  adsAccount: string               // โฆษณา Manual/Automatic Keywords — 520219
+  compensationAccount: string      // หักเงินเพื่อชดเชยผู้สั่งซื้อ (ยอดเรียกคืน) — 410303
+  adjAccount: string               // การปรับรายได้อื่นๆ ที่เหลือ — '' = ยังไม่บันทึก (เตือนแทน)
 }
 export const DEFAULT_GRAB_PEAK_CONFIG: GrabPeakConfig = {
-  discountAccount: '510301', costAccount: '530504', adjAccount: '',
+  discountAccount: '410302', deliveryDiscountAccount: '520219',
+  marketingAccount: '520219', commissionAccount: '520220',
+  mdrAccount: '520220', adsAccount: '520219',
+  compensationAccount: '410303', adjAccount: '',
 }
 
 /** One line of the PEAK Import_Expenses sheet. Same seq = one document. */
@@ -310,13 +319,13 @@ export function buildGrabReceiptLines(
 function costParts(r: GrabRow, cfg: GrabPeakConfig): { account: string; label: string; amount: number }[] {
   const parts = [
     { account: cfg.discountAccount, label: 'ส่วนลดออกโดยร้านค้า', amount: -r.shopDiscount },
-    { account: cfg.discountAccount, label: 'ส่วนลดค่าจัดส่ง (ออกโดยร้าน)', amount: -r.deliveryDiscount },
-    { account: cfg.costAccount, label: 'ค่าธรรมเนียมการตลาด', amount: -r.marketingFee },
-    { account: cfg.costAccount, label: 'ค่าคอมมิชชั่นแพลตฟอร์ม', amount: -r.commPlatform },
-    { account: cfg.costAccount, label: 'ค่าคอมมิชชั่นคำสั่งซื้อ', amount: -r.commOrder },
-    { account: cfg.costAccount, label: 'ค่าคอมมิชชั่นการจัดส่ง', amount: -r.commDelivery },
-    { account: cfg.costAccount, label: 'ค่าคอมมิชชั่นอื่นของ grab', amount: -r.commOther },
-    { account: cfg.costAccount, label: 'MDR / ค่าธรรมเนียม Grab', amount: -(r.mdr + r.mdrVat + r.grabFee) },
+    { account: cfg.deliveryDiscountAccount, label: 'ส่วนลดค่าจัดส่ง (ออกโดยร้าน)', amount: -r.deliveryDiscount },
+    { account: cfg.marketingAccount, label: 'ค่าธรรมเนียมการตลาด', amount: -r.marketingFee },
+    { account: cfg.commissionAccount, label: 'ค่าคอมมิชชั่นแพลตฟอร์ม', amount: -r.commPlatform },
+    { account: cfg.commissionAccount, label: 'ค่าคอมมิชชั่นคำสั่งซื้อ', amount: -r.commOrder },
+    { account: cfg.commissionAccount, label: 'ค่าคอมมิชชั่นการจัดส่ง', amount: -r.commDelivery },
+    { account: cfg.commissionAccount, label: 'ค่าคอมมิชชั่นอื่นของ grab', amount: -r.commOther },
+    { account: cfg.mdrAccount, label: 'MDR / ค่าธรรมเนียม Grab', amount: -(r.mdr + r.mdrVat + r.grabFee) },
   ]
   return parts.filter(p => Math.abs(p.amount) > 0.005).map(p => ({ ...p, amount: r2(p.amount) }))
 }
@@ -379,7 +388,12 @@ export function buildGrabExpenseLines(
     } else if (r.category === 'การปรับรายได้') {
       if (r.subitem.startsWith('Commission for Govt Campaign')) {
         if (!ready) { noteIssue(missing, b?.name_en ?? r.storeName, r.total); continue }
-        pushDoc(b!, r.orderCode, [{ account: cfg.costAccount, label: 'ค่าคอมมิชชั่นไทยช่วยไทย', amount: r2(-r.total) }])
+        pushDoc(b!, r.orderCode, [{ account: cfg.commissionAccount, label: 'ค่าคอมมิชชั่นไทยช่วยไทย', amount: r2(-r.total) }])
+      } else if (r.subitem.startsWith('หักเงินเพื่อชดเชย')) {
+        // customer-complaint clawback (ยอดเรียกคืน) — Grab refunds the customer out of
+        // our settlement; books as contra-revenue per Point (410303)
+        if (!ready) { noteIssue(missing, b?.name_en ?? r.storeName, r.total); continue }
+        pushDoc(b!, r.orderCode || r.txnId, [{ account: cfg.compensationAccount, label: `หักเงินเพื่อชดเชยผู้สั่งซื้อ${r.description ? ` — ${r.description}` : ''}`, amount: r2(-r.total) }])
       } else if (/refund/i.test(r.description) && !(r.orderCode && bankCodes.has(`${r.grabStoreId}|${r.orderCode}`))) {
         info.push(`${b?.name_en ?? r.storeName} ${r.orderCode || r.txnId}: "${r.description}" ${r.total.toFixed(2)} — ย้ายสาย settlement (ถุงเงิน→ธนาคาร) เท่านั้น ไม่ต้องบันทึกบัญชี`)
       } else if (!cfg.adjAccount) {
@@ -390,7 +404,7 @@ export function buildGrabExpenseLines(
       }
     } else if (r.category === 'โฆษณา') {
       if (!ready) { noteIssue(missing, b?.name_en ?? r.storeName, r.total); continue }
-      pushDoc(b!, r.orderCode || r.txnId, [{ account: cfg.costAccount, label: `โฆษณา ${r.description || r.subitem}`, amount: r2(-r.total) }])
+      pushDoc(b!, r.orderCode || r.txnId, [{ account: cfg.adsAccount, label: `โฆษณา ${r.description || r.subitem}`, amount: r2(-r.total) }])
     }
   }
   warnings.push(...issueWarnings(missing, 'ยังตั้งค่า E-Wallet/ผู้ติดต่อ Grab ไม่ครบ — ข้ามต้นทุน Grab'))

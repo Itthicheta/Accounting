@@ -79,9 +79,15 @@ export default function PeakExport() {
         taxInvoice: Number(smap.peak_tax_invoice ?? DEFAULT_PEAK_CONFIG.taxInvoice),
         qty: Number(smap.peak_qty ?? DEFAULT_PEAK_CONFIG.qty),
       }
+      const D = DEFAULT_GRAB_PEAK_CONFIG
       const gcfg: GrabPeakConfig = {
-        discountAccount: smap.grab_discount_account || DEFAULT_GRAB_PEAK_CONFIG.discountAccount,
-        costAccount: smap.grab_cost_account || DEFAULT_GRAB_PEAK_CONFIG.costAccount,
+        discountAccount: smap.grab_discount_account || D.discountAccount,
+        deliveryDiscountAccount: smap.grab_delivery_discount_account || D.deliveryDiscountAccount,
+        marketingAccount: smap.grab_marketing_account || D.marketingAccount,
+        commissionAccount: smap.grab_commission_account || D.commissionAccount,
+        mdrAccount: smap.grab_mdr_account || D.mdrAccount,
+        adsAccount: smap.grab_ads_account || D.adsAccount,
+        compensationAccount: smap.grab_compensation_account || D.compensationAccount,
         adjAccount: smap.grab_adj_account ?? '',
       }
       setConfig(cfg)

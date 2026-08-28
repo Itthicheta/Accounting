@@ -19,9 +19,14 @@ const SETTING_META: { key: string; label: string }[] = [
   { key: 'peak_price_type', label: 'ประเภทราคา (I): 1=แยกภาษี 2=รวมภาษี 3=ไม่มีภาษี' },
   { key: 'peak_tax_invoice', label: 'ออกใบกำกับภาษี (H): 1=ออก 2=ไม่ออก' },
   { key: 'peak_qty', label: 'จำนวน (M) — คงที่' },
-  { key: 'grab_discount_account', label: 'บัญชีส่วนลดออกโดยร้าน (K ไฟล์ต้นทุน Grab)' },
-  { key: 'grab_cost_account', label: 'บัญชีค่าคอม/ค่าธรรมเนียม/โฆษณา Grab (K)' },
-  { key: 'grab_adj_account', label: 'บัญชีการปรับรายได้อื่นๆ (ว่าง = ยังไม่บันทึก)' },
+  { key: 'grab_discount_account', label: 'Grab: ส่วนลดออกโดยร้าน (K)' },
+  { key: 'grab_delivery_discount_account', label: 'Grab: ส่วนลดค่าจัดส่ง (K)' },
+  { key: 'grab_marketing_account', label: 'Grab: ค่าธรรมเนียมการตลาด (K)' },
+  { key: 'grab_commission_account', label: 'Grab: ค่าคอมมิชชันทุกประเภท รวมไทยช่วยไทย (K)' },
+  { key: 'grab_mdr_account', label: 'Grab: MDR / ค่าธรรมเนียม Grab (K)' },
+  { key: 'grab_ads_account', label: 'Grab: โฆษณา Keywords (K)' },
+  { key: 'grab_compensation_account', label: 'Grab: หักเงินเพื่อชดเชยผู้สั่งซื้อ (K)' },
+  { key: 'grab_adj_account', label: 'Grab: การปรับรายได้อื่นๆ (ว่าง = ยังไม่บันทึก)' },
 ]
 
 export default function Config() {
@@ -128,7 +133,12 @@ export default function Config() {
                   peak_tax_invoice: String(DEFAULT_PEAK_CONFIG.taxInvoice),
                   peak_qty: String(DEFAULT_PEAK_CONFIG.qty),
                   grab_discount_account: DEFAULT_GRAB_PEAK_CONFIG.discountAccount,
-                  grab_cost_account: DEFAULT_GRAB_PEAK_CONFIG.costAccount,
+                  grab_delivery_discount_account: DEFAULT_GRAB_PEAK_CONFIG.deliveryDiscountAccount,
+                  grab_marketing_account: DEFAULT_GRAB_PEAK_CONFIG.marketingAccount,
+                  grab_commission_account: DEFAULT_GRAB_PEAK_CONFIG.commissionAccount,
+                  grab_mdr_account: DEFAULT_GRAB_PEAK_CONFIG.mdrAccount,
+                  grab_ads_account: DEFAULT_GRAB_PEAK_CONFIG.adsAccount,
+                  grab_compensation_account: DEFAULT_GRAB_PEAK_CONFIG.compensationAccount,
                   grab_adj_account: 'ว่าง = ไม่บันทึก',
                 }[m.key] ?? ''}
                 onChange={e => setSettings(s => ({ ...s, [m.key]: e.target.value }))}
