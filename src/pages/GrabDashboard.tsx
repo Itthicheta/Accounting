@@ -158,7 +158,15 @@ export default function GrabDashboard() {
         if (c.grab === undefined) c.grab = 0          // report uploaded for that day
         if (r.category === 'ชำระเงิน') c.grab += 1
       }
-      const gridCodes = branches.filter(b => b.is_active && b.grab_store_id).map(b => b.code).sort()
+      // include branches selling on Grab per POS even before their grab_store_id is
+      // mapped (e.g. a new branch's first days) — grab side shows – until a report maps it
+      const posGrabCodes = [...cells.entries()]
+        .filter(([, c]) => (c.pos ?? 0) > 0)
+        .map(([k]) => k.split('|')[0])
+      const gridCodes = [...new Set([
+        ...branches.filter(b => b.is_active && b.grab_store_id).map(b => b.code),
+        ...posGrabCodes,
+      ])].sort()
       const gridDates = [...new Set([...cells.keys()].map(k => k.split('|')[1]))].sort()
       setBillGrid({ dates: gridDates, codes: gridCodes, cells })
 

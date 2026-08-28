@@ -40,8 +40,14 @@ export default function PeakExport() {
   // reconciled for S-3 — by then the payout has landed (bank T+1, report T+2)
   // and TCT has arrived (latest T+3), so everything in the sitting is matchable.
   const [settleDay, setSettleDay] = useState(bkkToday())
-  const instoreDay = shiftDate(settleDay, -1)
-  const grabDay = shiftDate(settleDay, -3)
+  // sale dates default from the settlement date but stay individually editable
+  const [instoreDay, setInstoreDay] = useState(shiftDate(bkkToday(), -1))
+  const [grabDay, setGrabDay] = useState(shiftDate(bkkToday(), -3))
+  const pickSettle = (d: string) => {
+    setSettleDay(d)
+    setInstoreDay(shiftDate(d, -1))
+    setGrabDay(shiftDate(d, -3))
+  }
   const [posLines, setPosLines] = useState<PeakReceiptLine[]>([])
   const [grabRevLines, setGrabRevLines] = useState<PeakReceiptLine[]>([])
   const [grabExpLines, setGrabExpLines] = useState<PeakExpenseLine[]>([])
@@ -144,7 +150,7 @@ export default function PeakExport() {
     setBusy(false)
   }
 
-  useEffect(() => { if (branches.length) load() }, [branches.length, settleDay])
+  useEffect(() => { if (branches.length) load() }, [branches.length, instoreDay, grabDay])
 
   const dl = (kind: 'receipt' | 'expense') => {
     if (kind === 'expense') {
@@ -167,13 +173,14 @@ export default function PeakExport() {
         เพราะเงิน Grab โอน T+1 รายงานมา T+2 และไทยช่วยไทยเข้าช้าสุด T+3 — ทุกยอดในรอบนี้จึงมีเงินเข้าให้จับคู่แล้ว
       </p>
       <div className="card row">
-        <div><label>วันที่ Settlement</label><input type="date" value={settleDay} onChange={e => setSettleDay(e.target.value)} /></div>
-        <div style={{ alignSelf: 'center' }}>
-          <span className="chip">หน้าร้าน+Catering: {thDate(instoreDay)}</span>{' '}
-          <span className="chip">Grab: {thDate(grabDay)}</span>
-        </div>
+        <div><label>วันที่ Settlement</label><input type="date" value={settleDay} onChange={e => pickSettle(e.target.value)} /></div>
+        <div><label>หน้าร้าน+Catering (S−1, แก้ได้)</label><input type="date" value={instoreDay} onChange={e => setInstoreDay(e.target.value)} /></div>
+        <div><label>Grab (S−3, แก้ได้)</label><input type="date" value={grabDay} onChange={e => setGrabDay(e.target.value)} /></div>
         {busy && <span className="muted">กำลังโหลด…</span>}
       </div>
+      {(instoreDay !== shiftDate(settleDay, -1) || grabDay !== shiftDate(settleDay, -3)) && (
+        <div className="banner warn">ใช้วันที่ขายที่กำหนดเอง (ต่างจากค่าปกติของ settlement {thDate(settleDay)}) — เปลี่ยนวันที่ Settlement เพื่อกลับเป็นค่าปกติ</div>
+      )}
 
       {!busy && (
         <div className="card">
