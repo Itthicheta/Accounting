@@ -274,8 +274,11 @@ function issueWarnings(m: Map<string, BranchIssue>, what: string): string[] {
 }
 
 /**
- * Grab revenue file — one receipt line (own document) per ชำระเงิน row:
- * gross ยอด into the branch's E-Wallet, อ้างอิง = GF code, ลูกค้า = Grab contact.
+ * Grab revenue — grouped per stream (Point 2026-09-08): all "Grab" orders of a
+ * branch sum into ONE daily receipt line and all "Grab ไทยช่วยไทย" orders into
+ * another (grouping key: คำอธิบาย × รับชำระโดย × กลุ่ม × ลูกค้า; อ้างอิง blank —
+ * per-order trace lives in the costs file + the Grab report). Cancelled-order
+ * claim lines stay individual with their GF ref (rare, worth seeing alone).
  * Cancelled orders and zero-amount rows are skipped.
  */
 export function buildGrabReceiptLines(
@@ -313,8 +316,21 @@ export function buildGrabReceiptLines(
       classGroup: b.peak_class,
     })
   }
+  // collapse per-order lines into daily stream totals; claims pass through
+  const grouped: PeakReceiptLine[] = []
+  const agg = new Map<string, PeakReceiptLine>()
+  for (const l of lines) {
+    if (l.description !== 'Grab' && l.description !== 'Grab ไทยช่วยไทย') { grouped.push(l); continue }
+    const key = `${l.description}|${l.paidBy}|${l.classGroup}|${l.customer}`
+    const g = agg.get(key)
+    if (g) { g.amount = r2(g.amount + l.amount); continue }
+    const first = { ...l, ref: '' }
+    agg.set(key, first)
+    grouped.push(first)
+  }
+  grouped.forEach((l, i) => { l.seq = i + 1 })
   return {
-    lines,
+    lines: grouped,
     warnings: issueWarnings(missing, 'ยังตั้งค่า E-Wallet/ผู้ติดต่อ Grab ไม่ครบ — ข้ามรายรับ Grab'),
   }
 }

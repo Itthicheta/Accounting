@@ -178,7 +178,8 @@ export default function PeakExport() {
       <h1>Peak — Export รายวัน (2 ไฟล์)</h1>
       <p className="muted">
         เลือก<b>วันที่ settlement</b> — ระบบจะรวมยอดขายหน้าร้าน+Catering ของ<b>เมื่อวาน (S−1)</b> และ
-        Grab รายออเดอร์ของ <b>3 วันก่อน (S−3)</b> ไว้ในไฟล์รายรับไฟล์เดียว (แต่ละบรรทัดลงวันที่ขายจริง)
+        ยอดขาย Grab ของ <b>3 วันก่อน (S−3)</b> (รวมเป็น 2 บรรทัดต่อ E-Wallet: Grab ปกติ + ไทยช่วยไทย)
+        ไว้ในไฟล์รายรับไฟล์เดียว (แต่ละบรรทัดลงวันที่ขายจริง)
         เพราะเงิน Grab โอน T+1 รายงานมา T+2 และไทยช่วยไทยเข้าช้าสุด T+3 — ทุกยอดในรอบนี้จึงมีเงินเข้าให้จับคู่แล้ว
       </p>
       <div className="card row">
@@ -212,7 +213,7 @@ export default function PeakExport() {
 
       <div className="card row" style={{ gap: 12, flexWrap: 'wrap' }}>
         <button className="primary" onClick={() => dl('receipt')} disabled={busy || (posLines.length === 0 && grabRevLines.length === 0)}>
-          1) ไฟล์รายรับ — หน้าร้าน {thDate(instoreDay)} ({posLines.length} บรรทัด) + Grab {thDate(grabDay)} ({grabRevLines.length} ออเดอร์) · {fmt(sum(posLines) + sum(grabRevLines))}
+          1) ไฟล์รายรับ — หน้าร้าน {thDate(instoreDay)} ({posLines.length} บรรทัด) + Grab {thDate(grabDay)} ({grabRevLines.length} บรรทัด) · {fmt(sum(posLines) + sum(grabRevLines))}
         </button>
         <button className="primary" onClick={() => dl('expense')} disabled={busy || grabExpLines.length === 0}>
           2) ไฟล์ต้นทุน Grab {thDate(grabDay)} ({grabDocCount} เอกสาร · {fmt(sum(grabExpLines))})
@@ -282,7 +283,7 @@ export default function PeakExport() {
         <div className="card scroll-x">
           <details>
             <summary style={{ cursor: 'pointer', fontWeight: 600 }}>
-              ไฟล์รายรับ · ส่วน Grab รายออเดอร์ — วันที่ขาย {thDate(grabDay)} ({grabRevLines.length} บรรทัด · รวม {fmt(sum(grabRevLines))}) — คลิกเพื่อดูรายบรรทัด
+              ไฟล์รายรับ · ส่วน Grab (รวมยอดต่อ E-Wallet) — วันที่ขาย {thDate(grabDay)} ({grabRevLines.length} บรรทัด · รวม {fmt(sum(grabRevLines))}) — คลิกเพื่อดูรายบรรทัด
             </summary>
             <table className="data center" style={{ marginTop: 10 }}>
               <thead>

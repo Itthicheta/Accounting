@@ -41,28 +41,31 @@ const gf834gp: GrabRow = {
   txnId: 't3', orderCode: 'GF-834', longOrderId: '', payoutId: 'PO-1', amount: 0, total: -13.39,
 }
 
-describe('buildGrabReceiptLines (ไฟล์รายรับ Grab → E-Wallet)', () => {
-  it('one receipt per order: gross into EWL, ref = GF code, customer = grab contact', () => {
-    const { lines, warnings } = buildGrabReceiptLines('2026-08-17', [rama9], [gf654, gf834sale, gf834gp])
+describe('buildGrabReceiptLines (ไฟล์รายรับ Grab → E-Wallet, grouped per stream 2026-09-08)', () => {
+  it('groups to 2 daily lines per wallet: Grab + Grab ไทยช่วยไทย, ref blank', () => {
+    // two normal orders + one TCT order → exactly 2 lines
+    const gf2: GrabRow = { ...gf654, txnId: 't2b', orderCode: 'GF-999', longOrderId: 'lo9', amount: 173, total: 120 }
+    const { lines, warnings } = buildGrabReceiptLines('2026-08-17', [rama9], [gf654, gf2, gf834sale, gf834gp])
     expect(warnings).toEqual([])
-    expect(lines).toHaveLength(2) // adjustment row is NOT revenue
+    expect(lines).toHaveLength(2) // adjustment row is NOT revenue; orders collapse per stream
     const [a, b] = lines
-    expect(a.ref).toBe('GF-654')
-    expect(a.amount).toBeCloseTo(327, 2)
+    expect(a.description).toBe('Grab')
+    expect(a.amount).toBeCloseTo(327 + 173, 2) // summed gross
+    expect(a.ref).toBe('')                     // no per-order ref on grouped lines
     expect(a.customer).toBe('C00072')
     expect(a.paidBy).toBe('EWL001')
     expect(a.classGroup).toBe('00001')
     expect(a.docDate).toBe(20260817)
-    expect(a.description).toBe('Grab')
-    expect(b.ref).toBe('GF-834')
-    expect(b.amount).toBeCloseTo(139, 2)
     expect(b.description).toBe('Grab ไทยช่วยไทย')
-    // workbook: D อ้างอิงถึง carries the GF code, K = 410101
+    expect(b.amount).toBeCloseTo(139, 2)
+    expect(b.ref).toBe('')
+    expect(lines.map(l => l.seq)).toEqual([1, 2])
+    // workbook: D อ้างอิงถึง blank, K = 410101
     const aoa: unknown[][] = XLSX.utils.sheet_to_json(peakReceiptWorkbook(lines).Sheets['Import_Receipt'], { header: 1 })
-    expect(aoa[1][3]).toBe('GF-654')
+    expect(aoa[1][3] ?? '').toBe('')
     expect(aoa[1][4]).toBe('C00072')
     expect(aoa[1][10]).toBe('410101')
-    expect(aoa[1][13]).toBe(327)
+    expect(aoa[1][13]).toBe(500)
     expect(aoa[1][17]).toBe('EWL001')
   })
 
@@ -86,7 +89,7 @@ describe('mergeReceiptLines (Point 2026-08-26: ONE receipt file daily)', () => {
     expect(merged.map(l => l.seq)).toEqual([1, 2, 3])
     expect(merged[0].paidBy).toBe('BSV004')       // catering → bank, no ref
     expect(merged[0].ref ?? '').toBe('')
-    expect(merged[1].ref).toBe('GF-654')          // grab rows keep ref + wallet
+    expect(merged[1].description).toBe('Grab')    // grouped grab line → wallet
     expect(merged[1].paidBy).toBe('EWL001')
     expect(merged[2].amount).toBeCloseTo(139, 2)
     // single workbook holds both kinds of rows
@@ -94,7 +97,6 @@ describe('mergeReceiptLines (Point 2026-08-26: ONE receipt file daily)', () => {
     expect(aoa).toHaveLength(4)
     expect(aoa[1][17]).toBe('BSV004')
     expect(aoa[2][17]).toBe('EWL001')
-    expect(aoa[2][3]).toBe('GF-654')
   })
 })
 
