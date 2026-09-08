@@ -350,14 +350,26 @@ function costParts(r: GrabRow, cfg: GrabPeakConfig): { account: string; label: s
   return parts.filter(p => Math.abs(p.amount) > 0.005).map(p => ({ ...p, amount: r2(p.amount) }))
 }
 
+/** Canonical line order inside the grouped daily cost document. */
+const COST_LABEL_ORDER = [
+  'ส่วนลดออกโดยร้านค้า', 'ส่วนลดค่าจัดส่ง (ออกโดยร้าน)', 'ค่าธรรมเนียมการตลาด',
+  'ค่าคอมมิชชั่นแพลตฟอร์ม', 'ค่าคอมมิชชั่นคำสั่งซื้อ', 'ค่าคอมมิชชั่นการจัดส่ง',
+  'ค่าคอมมิชชั่นอื่นของ grab', 'MDR / ค่าธรรมเนียม Grab', 'ค่าคอมมิชชั่นไทยช่วยไทย',
+  'โฆษณา Manual Keywords', 'โฆษณา Automatic Keywords',
+]
+
 /**
- * Grab costs file — Import_Expenses documents, all paid from the branch E-Wallet:
- * - one document per ชำระเงิน order holding its discount/fee/commission lines
- * - one document per TCT commission row (การปรับรายได้ Commission for Govt Campaign)
- * - one document per โฆษณา row (Manual/Automatic Keywords)
- * - refund-labeled อื่นๆ rows are pure settlement-stream shifts → skipped (info)
- * - other การปรับรายได้ rows need grab_adj_account; blank config → warning
- * - ภาษีหัก ณ ที่จ่าย has no rule yet → loud warning if it ever appears
+ * Grab costs file — Import_Expenses, GROUPED (Point 2026-09-08): ONE document
+ * for the whole day holding every routine cost as one line per
+ * คำอธิบาย × กลุ่มจัดประเภท × ชำระโดย (branch × cost type), อ้างอิง blank,
+ * R จำนวนเงินที่ชำระ = that WALLET's subtotal (each line pays from its own EWL).
+ * Ads labels normalized to โฆษณา Manual/Automatic Keywords (date dropped).
+ * Kept INDIVIDUAL (own document, GF ref + description intact):
+ * - ยอดเรียกคืน (หักเงินเพื่อชดเชยผู้สั่งซื้อ → 410303)
+ * - ค่าคอมมิชชันจากคำสั่งซื้อที่ถูกยกเลิก (→ commission account)
+ * - การปรับรายได้อื่นๆ when grab_adj_account is set (blank → warning)
+ * Refund-labeled อื่นๆ rows are settlement-stream shifts → skipped (info).
+ * ภาษีหัก ณ ที่จ่าย has no rule yet → loud warning if it ever appears.
  */
 export function buildGrabExpenseLines(
   isoDate: string,
@@ -365,7 +377,6 @@ export function buildGrabExpenseLines(
   rows: GrabRow[],
   cfg: GrabPeakConfig = DEFAULT_GRAB_PEAK_CONFIG,
 ): { lines: PeakExpenseLine[]; warnings: string[]; info: string[] } {
-  const lines: PeakExpenseLine[] = []
   const warnings: string[] = []
   const info: string[] = []
   const missing = new Map<string, BranchIssue>()
@@ -376,21 +387,16 @@ export function buildGrabExpenseLines(
   const bankCodes = new Set(rows
     .filter(r => r.category === 'ชำระเงิน' && r.orderCode && isBankSale(r))
     .map(r => `${r.grabStoreId}|${r.orderCode}`))
-  let seq = 1
 
-  const pushDoc = (b: Branch, ref: string, parts: { account: string; label: string; amount: number }[]) => {
-    if (!parts.length) return
-    const docTotal = r2(parts.reduce((s, p) => s + p.amount, 0))
-    const docSeq = seq++
-    for (const p of parts) {
-      lines.push({
-        seq: docSeq, docDate, ref,
-        contact: b.grab_contact!,
-        account: p.account, description: p.label, amount: p.amount,
-        paidBy: b.ewallet!, docTotal, classGroup: b.peak_class!,
-      })
-    }
+  type Part = { account: string; label: string; amount: number }
+  const grouped = new Map<string, { b: Branch; account: string; label: string; amount: number }>()
+  const addGrouped = (b: Branch, p: Part) => {
+    const key = `${b.peak_class}|${p.label}`
+    const g = grouped.get(key)
+    if (g) g.amount = r2(g.amount + p.amount)
+    else grouped.set(key, { b, account: p.account, label: p.label, amount: p.amount })
   }
+  const individual: { b: Branch; ref: string; parts: Part[] }[] = []
 
   for (const r of rows) {
     if (r.category === 'ยกเลิก') continue
@@ -404,34 +410,74 @@ export function buildGrabExpenseLines(
       const parts = costParts(r, cfg)
       if (!parts.length) continue
       if (!ready) { noteIssue(missing, b?.name_en ?? r.storeName, totalMag); continue }
-      pushDoc(b!, r.orderCode, parts)
+      for (const p of parts) addGrouped(b!, p)
     } else if (r.category === 'การปรับรายได้') {
       if (r.subitem.startsWith('Commission for Govt Campaign')) {
         if (!ready) { noteIssue(missing, b?.name_en ?? r.storeName, r.total); continue }
-        pushDoc(b!, r.orderCode, [{ account: cfg.commissionAccount, label: 'ค่าคอมมิชชั่นไทยช่วยไทย', amount: r2(-r.total) }])
+        addGrouped(b!, { account: cfg.commissionAccount, label: 'ค่าคอมมิชชั่นไทยช่วยไทย', amount: r2(-r.total) })
       } else if (r.subitem.startsWith('ชดเชยคำสั่งซื้อ')) {
         // claim VALUE — booked as revenue in the receipt file, not a cost
         continue
       } else if (r.subitem.startsWith('ค่าคอมมิชชันจากคำสั่งซื้อ')) {
-        // commission Grab charges on the cancelled-order claim → 520220
+        // commission Grab charges on a cancelled-order claim — rare, keep individual
         if (!ready) { noteIssue(missing, b?.name_en ?? r.storeName, r.total); continue }
-        pushDoc(b!, r.orderCode || r.txnId, [{ account: cfg.commissionAccount, label: r.subitem, amount: r2(-r.total) }])
+        individual.push({ b: b!, ref: r.orderCode || r.txnId, parts: [{ account: cfg.commissionAccount, label: r.subitem, amount: r2(-r.total) }] })
       } else if (r.subitem.startsWith('หักเงินเพื่อชดเชย')) {
-        // customer-complaint clawback (ยอดเรียกคืน) — Grab refunds the customer out of
-        // our settlement; books as contra-revenue per Point (410303)
+        // customer-complaint clawback (ยอดเรียกคืน) — rare, keep individual (410303)
         if (!ready) { noteIssue(missing, b?.name_en ?? r.storeName, r.total); continue }
-        pushDoc(b!, r.orderCode || r.txnId, [{ account: cfg.compensationAccount, label: `หักเงินเพื่อชดเชยผู้สั่งซื้อ${r.description ? ` — ${r.description}` : ''}`, amount: r2(-r.total) }])
+        individual.push({ b: b!, ref: r.orderCode || r.txnId, parts: [{ account: cfg.compensationAccount, label: `หักเงินเพื่อชดเชยผู้สั่งซื้อ${r.description ? ` — ${r.description}` : ''}`, amount: r2(-r.total) }] })
       } else if (/refund/i.test(r.description) && !(r.orderCode && bankCodes.has(`${r.grabStoreId}|${r.orderCode}`))) {
         info.push(`${b?.name_en ?? r.storeName} ${r.orderCode || r.txnId}: "${r.description}" ${r.total.toFixed(2)} — ย้ายสาย settlement (ถุงเงิน→ธนาคาร) เท่านั้น ไม่ต้องบันทึกบัญชี`)
       } else if (!cfg.adjAccount) {
         noteIssue(noAdjAccount, b?.name_en ?? r.storeName, r.total)
       } else {
         if (!ready) { noteIssue(missing, b?.name_en ?? r.storeName, r.total); continue }
-        pushDoc(b!, r.orderCode || r.txnId, [{ account: cfg.adjAccount, label: `การปรับรายได้ ${r.subitem || 'อื่นๆ'}${r.description ? ` — ${r.description}` : ''}`, amount: r2(-r.total) }])
+        individual.push({ b: b!, ref: r.orderCode || r.txnId, parts: [{ account: cfg.adjAccount, label: `การปรับรายได้ ${r.subitem || 'อื่นๆ'}${r.description ? ` — ${r.description}` : ''}`, amount: r2(-r.total) }] })
       }
     } else if (r.category === 'โฆษณา') {
       if (!ready) { noteIssue(missing, b?.name_en ?? r.storeName, r.total); continue }
-      pushDoc(b!, r.orderCode || r.txnId, [{ account: cfg.adsAccount, label: `โฆษณา ${r.description || r.subitem}`, amount: r2(-r.total) }])
+      const label = r.description.startsWith('Manual') ? 'โฆษณา Manual Keywords'
+        : r.description.startsWith('Automatic') ? 'โฆษณา Automatic Keywords'
+          : `โฆษณา ${r.description || r.subitem}`
+      addGrouped(b!, { account: cfg.adsAccount, label, amount: r2(-r.total) })
+    }
+  }
+
+  // emit: doc 1 = the grouped daily document (rows sorted branch → canonical label
+  // order); each line's R = its own wallet's subtotal. Then individual docs.
+  const lines: PeakExpenseLine[] = []
+  let seq = 1
+  const entries = [...grouped.values()].filter(e => Math.abs(e.amount) > 0.005)
+  if (entries.length) {
+    const walletTotal = new Map<string, number>()
+    for (const e of entries) {
+      walletTotal.set(e.b.ewallet!, r2((walletTotal.get(e.b.ewallet!) ?? 0) + e.amount))
+    }
+    const labelIdx = (l: string) => {
+      const i = COST_LABEL_ORDER.indexOf(l)
+      return i < 0 ? COST_LABEL_ORDER.length : i
+    }
+    entries.sort((a, z) => a.b.peak_class!.localeCompare(z.b.peak_class!) || labelIdx(a.label) - labelIdx(z.label))
+    const docSeq = seq++
+    for (const e of entries) {
+      lines.push({
+        seq: docSeq, docDate, ref: '',
+        contact: e.b.grab_contact!,
+        account: e.account, description: e.label, amount: e.amount,
+        paidBy: e.b.ewallet!, docTotal: walletTotal.get(e.b.ewallet!)!, classGroup: e.b.peak_class!,
+      })
+    }
+  }
+  for (const d of individual) {
+    const docTotal = r2(d.parts.reduce((s, p) => s + p.amount, 0))
+    const docSeq = seq++
+    for (const p of d.parts) {
+      lines.push({
+        seq: docSeq, docDate, ref: d.ref,
+        contact: d.b.grab_contact!,
+        account: p.account, description: p.label, amount: p.amount,
+        paidBy: d.b.ewallet!, docTotal, classGroup: d.b.peak_class!,
+      })
     }
   }
   warnings.push(...issueWarnings(missing, 'ยังตั้งค่า E-Wallet/ผู้ติดต่อ Grab ไม่ครบ — ข้ามต้นทุน Grab'))

@@ -100,53 +100,62 @@ describe('mergeReceiptLines (Point 2026-08-26: ONE receipt file daily)', () => {
   })
 })
 
-describe('buildGrabExpenseLines (ไฟล์ต้นทุน Grab ← E-Wallet)', () => {
-  it('matches Point sample: GF-654 doc of 4 lines totalling 151.35 + GF-834 GP doc of 13.39', () => {
+describe('buildGrabExpenseLines (ไฟล์ต้นทุน Grab ← E-Wallet, grouped 2026-09-08)', () => {
+  it('routine costs collapse into ONE daily doc: one line per cost type, ref blank', () => {
     const { lines, warnings } = buildGrabExpenseLines('2026-08-17', [rama9], [gf654, gf834sale, gf834gp])
     expect(warnings).toEqual([])
-    const doc1 = lines.filter(l => l.seq === 1)
-    expect(doc1).toHaveLength(4)
-    expect(doc1.map(l => [l.description, l.amount])).toEqual([
+    // everything routine → single document (seq 1), 5 grouped lines incl. TCT GP
+    expect(new Set(lines.map(l => l.seq))).toEqual(new Set([1]))
+    expect(lines.map(l => [l.description, l.amount])).toEqual([
       ['ส่วนลดออกโดยร้านค้า', 63],
       ['ค่าธรรมเนียมการตลาด', 37.45],
       ['ค่าคอมมิชชั่นแพลตฟอร์ม', 39.6],
       ['ค่าคอมมิชชั่นอื่นของ grab', 11.3],
+      ['ค่าคอมมิชชั่นไทยช่วยไทย', 13.39],
     ])
-    expect(doc1[0].account).toBe('410302')  // ส่วนลด → contra-revenue (chart 2026-08-28)
-    expect(doc1[1].account).toBe('520219')  // marketing
-    expect(doc1[2].account).toBe('520220')  // platform commission
-    expect(doc1[3].account).toBe('520220')  // other commission
-    for (const l of doc1) {
-      expect(l.ref).toBe('GF-654')
+    expect(lines[0].account).toBe('410302')  // ส่วนลด → contra-revenue
+    expect(lines[1].account).toBe('520219')  // marketing
+    expect(lines[2].account).toBe('520220')  // platform commission
+    expect(lines[4].account).toBe('520220')  // TCT GP grouped in
+    for (const l of lines) {
+      expect(l.ref).toBe('')
       expect(l.contact).toBe('C00072')
       expect(l.paidBy).toBe('EWL001')
-      expect(l.docTotal).toBeCloseTo(151.35, 2)
+      expect(l.docTotal).toBeCloseTo(164.74, 2) // wallet subtotal (single wallet here)
       expect(l.classGroup).toBe('00001')
     }
-    const doc2 = lines.filter(l => l.seq === 2)
-    expect(doc2).toHaveLength(1)
-    expect(doc2[0].account).toBe('520220')
-    expect(doc2[0].description).toBe('ค่าคอมมิชชั่นไทยช่วยไทย')
-    expect(doc2[0].amount).toBeCloseTo(13.39, 2)
-    expect(doc2[0].docTotal).toBeCloseTo(13.39, 2)
-    expect(doc2[0].ref).toBe('GF-834')
-    // conservation: revenue − costs = net receiving (175.65 + 139 − 13.39... already inside)
+    // conservation: revenue − costs = net receiving
     const rev = 327 + 139
     const costs = lines.reduce((s, l) => s + l.amount, 0)
     expect(rev - costs).toBeCloseTo(175.65 + 139 - 13.39, 2)
   })
 
-  it('ads rows become their own expense docs on the cost account', () => {
-    const ads: GrabRow = {
+  it('multi-branch day: one document, per-wallet R subtotals, sorted branch→type', () => {
+    const gaysorn: Branch = { ...rama9, code: 'gaysorn', name_en: 'Gaysorn', grab_store_id: 'store-gs', peak_class: '00002', ewallet: 'EWL002' }
+    const gsOrder: GrabRow = { ...gf654, grabStoreId: 'store-gs', txnId: 'g1', orderCode: 'GF-100', shopDiscount: -20, marketingFee: 0, commPlatform: -30, commOther: 0, amount: 200, total: 150 }
+    const { lines } = buildGrabExpenseLines('2026-08-17', [rama9, gaysorn], [gf654, gsOrder])
+    expect(new Set(lines.map(l => l.seq))).toEqual(new Set([1]))
+    const r9 = lines.filter(l => l.paidBy === 'EWL001')
+    const gs = lines.filter(l => l.paidBy === 'EWL002')
+    expect(r9.every(l => Math.abs(l.docTotal - 151.35) < 0.01)).toBe(true)
+    expect(gs.every(l => Math.abs(l.docTotal - 50) < 0.01)).toBe(true)
+    // sorted by class group: all 00001 lines before 00002
+    const classes = lines.map(l => l.classGroup)
+    expect(classes).toEqual([...classes].sort())
+  })
+
+  it('ads rows group per keyword type with normalized label (date dropped)', () => {
+    const ads1: GrabRow = {
       ...base, category: 'โฆษณา', txnId: 'ad1', orderCode: '', longOrderId: '', payoutId: 'PO-1',
-      description: 'Manual Keywords', total: -53.5,
+      description: 'Manual Keywords - 2026-08-17', total: -53.5,
     }
-    const { lines } = buildGrabExpenseLines('2026-08-17', [rama9], [ads])
+    const ads2: GrabRow = { ...ads1, txnId: 'ad2', total: -10 }
+    const { lines } = buildGrabExpenseLines('2026-08-17', [rama9], [ads1, ads2])
     expect(lines).toHaveLength(1)
     expect(lines[0].description).toBe('โฆษณา Manual Keywords')
     expect(lines[0].account).toBe('520219')
-    expect(lines[0].amount).toBeCloseTo(53.5, 2)
-    expect(lines[0].ref).toBe('ad1')
+    expect(lines[0].amount).toBeCloseTo(63.5, 2)  // summed
+    expect(lines[0].ref).toBe('')
   })
 
   it('refund-labeled อื่นๆ = settlement shift → info only, no booking', () => {
@@ -241,10 +250,10 @@ describe('buildGrabExpenseLines (ไฟล์ต้นทุน Grab ← E-Walle
     expect(aoa[0][16]).toBe('ชำระโดย')
     expect(aoa[0][17]).toBe('จำนวนเงินที่ชำระ')
     expect(aoa[0][20]).toBe('กลุ่มจัดประเภท')
-    // row 2 = first line of doc 1 (per Point's sample values)
+    // row 2 = first line of the grouped daily doc
     expect(aoa[1][0]).toBe(1)          // A ลำดับที่
     expect(aoa[1][1]).toBe(20260817)   // B YYYYMMDD
-    expect(aoa[1][2]).toBe('GF-654')   // C อ้างอิงถึง
+    expect(aoa[1][2] ?? '').toBe('')   // C อ้างอิงถึง blank on grouped lines
     expect(aoa[1][3]).toBe('C00072')   // D ผู้รับเงิน
     expect(aoa[1][9]).toBe(2)          // J รวมภาษี
     expect(aoa[1][10]).toBe('410302')  // K
@@ -253,11 +262,11 @@ describe('buildGrabExpenseLines (ไฟล์ต้นทุน Grab ← E-Walle
     expect(aoa[1][13]).toBe(63)        // N
     expect(aoa[1][14]).toBe(0.07)      // O
     expect(aoa[1][16]).toBe('EWL001')  // Q
-    expect(aoa[1][17]).toBe(151.35)    // R ยอดเอกสาร
+    expect(aoa[1][17]).toBe(164.74)    // R = wallet subtotal
     expect(aoa[1][20]).toBe('00001')   // U
-    // GP doc row
-    expect(aoa[5][0]).toBe(2)
+    // TCT GP is the last grouped line of the same document
+    expect(aoa[5][0]).toBe(1)
     expect(aoa[5][13]).toBe(13.39)
-    expect(aoa[5][17]).toBe(13.39)
+    expect(aoa[5][17]).toBe(164.74)
   })
 })
