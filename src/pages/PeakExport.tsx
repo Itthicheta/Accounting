@@ -31,6 +31,7 @@ type WalletRow = {
   toBank: number       // โอนเข้าธนาคาร (คำนวณ) — settle ออกด้วยมือ
   toTct: number        // เข้าถุงเงิน (TCT) — settle ออกด้วยมือ
   leftover: number     // revenue - costs - toBank - toTct (ควรเป็น 0)
+  bankDates: string[]  // วันที่เงินเข้า K-bank จริง จาก payout sheet (fallback: grabDay+1)
 }
 
 export default function PeakExport() {
@@ -123,6 +124,19 @@ export default function PeakExport() {
       const f2 = buildGrabReceiptLines(grabDay, branches, active, cfg)
       const f3 = buildGrabExpenseLines(grabDay, branches, active, gcfg)
 
+      // actual K-bank arrival dates from the payout sheet (per branch, usually T+1;
+      // negative-carry days can batch into an adjacent payout — real date beats rule)
+      const payoutIds = [...new Set(active.filter(r => r.payoutId).map(r => r.payoutId))]
+      const payoutDate = new Map<string, string>()
+      if (payoutIds.length) {
+        const { data: pds } = await sb.from('grab_payouts')
+          .select('payout_id,transferred_at').in('payout_id', payoutIds)
+        for (const p of (pds as { payout_id: string; transferred_at: string | null }[]) ?? []) {
+          if (p.transferred_at) payoutDate.set(p.payout_id,
+            new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Bangkok' }).format(new Date(p.transferred_at)))
+        }
+      }
+
       // E-Wallet check: gross in − costs out − (settlement legs staff will key) ≈ 0
       const recon = active.length
         ? reconByBranch({ rows: active, payouts: [], periodStart: grabDay, periodEnd: grabDay, declaredStart: grabDay, declaredEnd: grabDay, warnings: [] })
@@ -134,11 +148,15 @@ export default function PeakExport() {
         if (!b?.ewallet) continue
         const revenue = f2.lines.filter(l => l.paidBy === b.ewallet).reduce((s, l) => s + l.amount, 0)
         const costs = f3.lines.filter(l => l.paidBy === b.ewallet).reduce((s, l) => s + l.amount, 0)
+        const bankDates = [...new Set(active
+          .filter(r => r.grabStoreId === rb.grabStoreId && r.payoutId && payoutDate.has(r.payoutId))
+          .map(r => payoutDate.get(r.payoutId)!))].sort()
         wrows.push({
           branch: b.name_en, ewallet: b.ewallet,
           revenue, costs,
           toBank: rb.bankPayoutCalc, toTct: rb.walletReceive,
           leftover: revenue - costs - rb.bankPayoutCalc - rb.walletReceive,
+          bankDates: bankDates.length ? bankDates : [shiftDate(grabDay, 1)],
         })
       }
 
@@ -227,7 +245,7 @@ export default function PeakExport() {
             <thead>
               <tr><th>สาขา</th><th>E-Wallet</th>
                 <th>เข้า — ยอดขาย gross (ห้ามใช้คีย์โอน)</th><th>ออก (ไฟล์ต้นทุน)</th>
-                <th>✍ คีย์โอน→ธนาคาร</th><th>✍ คีย์โอน→ถุงเงิน (KTB)</th><th>คงเหลือ</th></tr>
+                <th>✍ คีย์โอน→ธนาคาร</th><th>✍ คีย์โอน→ถุงเงิน (KTB) · เงินเข้า {thDate(shiftDate(grabDay, 3))}</th><th>คงเหลือ</th></tr>
             </thead>
             <tbody>
               {wallet.map(w => (
@@ -236,7 +254,10 @@ export default function PeakExport() {
                   <td>{w.ewallet}</td>
                   <td>{fmt(w.revenue)}</td>
                   <td>{fmt(w.costs)}</td>
-                  <td style={{ color: w.toBank < 0 ? 'var(--danger)' : 'inherit' }}>{fmt(w.toBank)}</td>
+                  <td style={{ color: w.toBank < 0 ? 'var(--danger)' : 'inherit' }}>
+                    {fmt(w.toBank)}
+                    <span className="pct">เข้า {w.bankDates.map(thDate).join(', ')}</span>
+                  </td>
                   <td>{fmt(w.toTct)}</td>
                   <td>{Math.abs(w.leftover) <= 0.02
                     ? <span className="chip ok">0.00 ✓</span>
@@ -247,7 +268,8 @@ export default function PeakExport() {
           </table>
           <p className="muted" style={{ marginTop: 8 }}>
             ⚠ คีย์โอนด้วยยอดจากช่อง ✍ เท่านั้น — ยอดขาย gross จะสูงกว่ายอดโอนจริงเสมอ (ต่างกันเท่าส่วนลด/ค่าธรรมเนียม
-            ซึ่งอยู่ในไฟล์ต้นทุนแล้ว) · คีย์โอน→ธนาคาร ติดลบ = วันนั้นต้นทุนสูงกว่ายอด Grab ปกติ (ตัดจากถุงเงินไม่ได้) —
+            ซึ่งอยู่ในไฟล์ต้นทุนแล้ว) · วันที่ "เงินเข้า" = วันที่ควรเจอยอดนี้ใน statement (ธนาคาร = วันโอนจริงจาก
+            payout sheet ปกติ +1 วัน, ถุงเงิน KTB = +3 วัน) · คีย์โอน→ธนาคาร ติดลบ = วันนั้นต้นทุนสูงกว่ายอด Grab ปกติ (ตัดจากถุงเงินไม่ได้) —
             ไม่ต้องคีย์ขาธนาคารวันนั้น ยอดติดลบจะค้างใน E-Wallet แล้วไปหักออกจากยอดโอนของวันถัดไปเอง ·
             คงเหลือไม่เป็นศูนย์ส่วนใหญ่มาจากรายการปรับรายได้ที่ยังไม่ได้บันทึก (ดู warning)
           </p>
