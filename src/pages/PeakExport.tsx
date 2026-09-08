@@ -245,7 +245,7 @@ export default function PeakExport() {
             <thead>
               <tr><th>สาขา</th><th>E-Wallet</th>
                 <th>เข้า — ยอดขาย gross (ห้ามใช้คีย์โอน)</th><th>ออก (ไฟล์ต้นทุน)</th>
-                <th>✍ คีย์โอน→ธนาคาร</th><th>✍ คีย์โอน→ถุงเงิน (KTB) · เงินเข้า {thDate(shiftDate(grabDay, 3))}</th><th>คงเหลือ</th></tr>
+                <th>✍ คีย์โอน→ธนาคาร</th><th>✍ คีย์โอน→ถุงเงิน (KTB)</th><th>คงเหลือ</th></tr>
             </thead>
             <tbody>
               {wallet.map(w => (
@@ -258,7 +258,10 @@ export default function PeakExport() {
                     {fmt(w.toBank)}
                     <span className="pct">เข้า {w.bankDates.map(thDate).join(', ')}</span>
                   </td>
-                  <td>{fmt(w.toTct)}</td>
+                  <td>
+                    {fmt(w.toTct)}
+                    {Math.abs(w.toTct) > 0.005 && <span className="pct">เข้า {thDate(shiftDate(grabDay, 3))}</span>}
+                  </td>
                   <td>{Math.abs(w.leftover) <= 0.02
                     ? <span className="chip ok">0.00 ✓</span>
                     : <span className="chip warn">{fmt(w.leftover)}</span>}</td>
