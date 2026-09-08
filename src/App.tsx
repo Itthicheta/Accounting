@@ -11,6 +11,7 @@ import PeakExport from './pages/PeakExport'
 import CateringList from './pages/CateringList'
 import CateringForm from './pages/CateringForm'
 import Config from './pages/Config'
+import Manual from './pages/Manual'
 
 export default function App() {
   const [session, setSession] = useState<Session | null>(null)
@@ -39,6 +40,7 @@ export default function App() {
         <Route path="/catering/new" element={<CateringForm />} />
         <Route path="/catering/:id" element={<CateringForm />} />
         <Route path="/config" element={<Config />} />
+        <Route path="/manual" element={<Manual />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>
     </Routes>
