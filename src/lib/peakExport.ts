@@ -359,10 +359,10 @@ const COST_LABEL_ORDER = [
 ]
 
 /**
- * Grab costs file — Import_Expenses, GROUPED (Point 2026-09-08): ONE document
- * for the whole day holding every routine cost as one line per
- * คำอธิบาย × กลุ่มจัดประเภท × ชำระโดย (branch × cost type), อ้างอิง blank,
- * R จำนวนเงินที่ชำระ = that WALLET's subtotal (each line pays from its own EWL).
+ * Grab costs file — Import_Expenses, GROUPED (Point 2026-09-08/09): one line per
+ * คำอธิบาย × กลุ่มจัดประเภท × ชำระโดย (branch × cost type), and each line is its
+ * OWN document (ลำดับที่ 1,2,3,…), อ้างอิง blank, R จำนวนเงินที่ชำระ = the line's
+ * own amount (already the grouped sum; each doc pays from its own EWL).
  * Ads labels normalized to โฆษณา Manual/Automatic Keywords (date dropped).
  * Kept INDIVIDUAL (own document, GF ref + description intact):
  * - ยอดเรียกคืน (หักเงินเพื่อชดเชยผู้สั่งซื้อ → 410303)
@@ -443,28 +443,24 @@ export function buildGrabExpenseLines(
     }
   }
 
-  // emit: doc 1 = the grouped daily document (rows sorted branch → canonical label
-  // order); each line's R = its own wallet's subtotal. Then individual docs.
+  // emit (Point 2026-09-09): each grouped line is its OWN document — ลำดับที่ runs
+  // 1,2,3,… across all lines, and R จำนวนเงินที่ชำระ = the line's own amount (the
+  // grouping already summed it). Sorted branch → canonical label order.
   const lines: PeakExpenseLine[] = []
   let seq = 1
   const entries = [...grouped.values()].filter(e => Math.abs(e.amount) > 0.005)
   if (entries.length) {
-    const walletTotal = new Map<string, number>()
-    for (const e of entries) {
-      walletTotal.set(e.b.ewallet!, r2((walletTotal.get(e.b.ewallet!) ?? 0) + e.amount))
-    }
     const labelIdx = (l: string) => {
       const i = COST_LABEL_ORDER.indexOf(l)
       return i < 0 ? COST_LABEL_ORDER.length : i
     }
     entries.sort((a, z) => a.b.peak_class!.localeCompare(z.b.peak_class!) || labelIdx(a.label) - labelIdx(z.label))
-    const docSeq = seq++
     for (const e of entries) {
       lines.push({
-        seq: docSeq, docDate, ref: '',
+        seq: seq++, docDate, ref: '',
         contact: e.b.grab_contact!,
         account: e.account, description: e.label, amount: e.amount,
-        paidBy: e.b.ewallet!, docTotal: walletTotal.get(e.b.ewallet!)!, classGroup: e.b.peak_class!,
+        paidBy: e.b.ewallet!, docTotal: e.amount, classGroup: e.b.peak_class!,
       })
     }
   }

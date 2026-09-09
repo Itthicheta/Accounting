@@ -101,11 +101,11 @@ describe('mergeReceiptLines (Point 2026-08-26: ONE receipt file daily)', () => {
 })
 
 describe('buildGrabExpenseLines (ไฟล์ต้นทุน Grab ← E-Wallet, grouped 2026-09-08)', () => {
-  it('routine costs collapse into ONE daily doc: one line per cost type, ref blank', () => {
+  it('routine costs group per type: each line its OWN doc, R = line amount, ref blank', () => {
     const { lines, warnings } = buildGrabExpenseLines('2026-08-17', [rama9], [gf654, gf834sale, gf834gp])
     expect(warnings).toEqual([])
-    // everything routine → single document (seq 1), 5 grouped lines incl. TCT GP
-    expect(new Set(lines.map(l => l.seq))).toEqual(new Set([1]))
+    // 5 grouped lines incl. TCT GP — ลำดับที่ 1..5, one doc each (Point 2026-09-09)
+    expect(lines.map(l => l.seq)).toEqual([1, 2, 3, 4, 5])
     expect(lines.map(l => [l.description, l.amount])).toEqual([
       ['ส่วนลดออกโดยร้านค้า', 63],
       ['ค่าธรรมเนียมการตลาด', 37.45],
@@ -121,7 +121,7 @@ describe('buildGrabExpenseLines (ไฟล์ต้นทุน Grab ← E-Walle
       expect(l.ref).toBe('')
       expect(l.contact).toBe('C00072')
       expect(l.paidBy).toBe('EWL001')
-      expect(l.docTotal).toBeCloseTo(164.74, 2) // wallet subtotal (single wallet here)
+      expect(l.docTotal).toBeCloseTo(l.amount, 2) // R = the line's own amount
       expect(l.classGroup).toBe('00001')
     }
     // conservation: revenue − costs = net receiving
@@ -130,15 +130,12 @@ describe('buildGrabExpenseLines (ไฟล์ต้นทุน Grab ← E-Walle
     expect(rev - costs).toBeCloseTo(175.65 + 139 - 13.39, 2)
   })
 
-  it('multi-branch day: one document, per-wallet R subtotals, sorted branch→type', () => {
+  it('multi-branch day: distinct doc numbers throughout, sorted branch→type', () => {
     const gaysorn: Branch = { ...rama9, code: 'gaysorn', name_en: 'Gaysorn', grab_store_id: 'store-gs', peak_class: '00002', ewallet: 'EWL002' }
     const gsOrder: GrabRow = { ...gf654, grabStoreId: 'store-gs', txnId: 'g1', orderCode: 'GF-100', shopDiscount: -20, marketingFee: 0, commPlatform: -30, commOther: 0, amount: 200, total: 150 }
     const { lines } = buildGrabExpenseLines('2026-08-17', [rama9, gaysorn], [gf654, gsOrder])
-    expect(new Set(lines.map(l => l.seq))).toEqual(new Set([1]))
-    const r9 = lines.filter(l => l.paidBy === 'EWL001')
-    const gs = lines.filter(l => l.paidBy === 'EWL002')
-    expect(r9.every(l => Math.abs(l.docTotal - 151.35) < 0.01)).toBe(true)
-    expect(gs.every(l => Math.abs(l.docTotal - 50) < 0.01)).toBe(true)
+    expect(lines.map(l => l.seq)).toEqual(lines.map((_, i) => i + 1)) // 1,2,3,... no repeats
+    for (const l of lines) expect(l.docTotal).toBeCloseTo(l.amount, 2)
     // sorted by class group: all 00001 lines before 00002
     const classes = lines.map(l => l.classGroup)
     expect(classes).toEqual([...classes].sort())
@@ -262,11 +259,11 @@ describe('buildGrabExpenseLines (ไฟล์ต้นทุน Grab ← E-Walle
     expect(aoa[1][13]).toBe(63)        // N
     expect(aoa[1][14]).toBe(0.07)      // O
     expect(aoa[1][16]).toBe('EWL001')  // Q
-    expect(aoa[1][17]).toBe(164.74)    // R = wallet subtotal
+    expect(aoa[1][17]).toBe(63)        // R = the line's own amount
     expect(aoa[1][20]).toBe('00001')   // U
-    // TCT GP is the last grouped line of the same document
-    expect(aoa[5][0]).toBe(1)
+    // TCT GP is the last grouped line — its own document, R = its own amount
+    expect(aoa[5][0]).toBe(5)
     expect(aoa[5][13]).toBe(13.39)
-    expect(aoa[5][17]).toBe(164.74)
+    expect(aoa[5][17]).toBe(13.39)
   })
 })
