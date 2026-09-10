@@ -232,8 +232,9 @@ export default function GrabDashboard() {
   }
 
   const pendingWarnings = pending.flatMap(it => it.parse.warnings.map(w => `${it.filename}: ${w}`))
-  const pendingUnknownStores = [...new Set(pending.flatMap(it =>
-    it.parse.rows.filter(r => r.grabStoreId && !byStoreId.has(r.grabStoreId)).map(r => r.storeName)))]
+  const pendingUnknownStores = [...new Map(pending.flatMap(it =>
+    it.parse.rows.filter(r => r.grabStoreId && !byStoreId.has(r.grabStoreId))
+      .map(r => [r.grabStoreId, r.storeName] as [string, string]))).entries()]
   const pendingBlocked = pendingUnknownStores.length > 0 ||
     pendingWarnings.some(w => w.includes('หมวดหมู่ไม่รู้จัก'))
 
@@ -284,7 +285,15 @@ export default function GrabDashboard() {
             </div>
           )}
           {pendingUnknownStores.length > 0 && (
-            <div className="banner bad">ร้านที่ไม่รู้จัก (เพิ่ม grab_store_id ใน acc.branches ก่อน): {pendingUnknownStores.join(', ')}</div>
+            <div className="banner bad">
+              ร้านในไฟล์ที่ระบบยังไม่รู้จัก — ไปที่หน้า <b>ตั้งค่า</b> ใส่ store id ลงช่อง
+              "Grab store id" ของสาขานั้น กดบันทึก แล้วกลับมาอัปโหลดไฟล์นี้ใหม่:
+              <ul style={{ margin: '6px 0 0 18px' }}>
+                {pendingUnknownStores.map(([id, name]) => (
+                  <li key={id}>{name} — store id: <code style={{ userSelect: 'all' }}>{id}</code></li>
+                ))}
+              </ul>
+            </div>
           )}
           <div style={{ marginTop: 10 }}>
             <button className="primary" onClick={saveUploads} disabled={savingUpload || pendingBlocked}>
