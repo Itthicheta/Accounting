@@ -155,12 +155,14 @@ export function buildPeakReceiptLines(
       continue
     }
     if (Math.abs(p.amount) <= 0.005) continue
-    // Alipay deducts its fee from the VAT-inclusive gross itself → book the
-    // receipt at NET so it matches the bank arrival (Point 2026-10-27)
+    // Alipay deducts commission + VAT on the commission from the gross itself
+    // (1.6% × 1.07 = 1.712%) → book the receipt at NET so it matches the bank
+    // arrival (Point 2026-10-27)
     if (p.methodCode === 'alipay' && config.alipayFeeRate > 0) {
-      const net = Math.round(p.amount * (1 - config.alipayFeeRate) * 100) / 100
+      const fee = p.amount * config.alipayFeeRate * (1 + config.vatRate)
+      const net = Math.round((p.amount - fee) * 100) / 100
       const pct = (config.alipayFeeRate * 100).toFixed(1).replace(/\.0$/, '')
-      if (b.peak_bank_sub) push(b, `POS ${p.methodName} (หักค่าธรรมเนียม ${pct}%)`, net, b.peak_bank_sub, p.methodName)
+      if (b.peak_bank_sub) push(b, `POS ${p.methodName} (หักค่าคอมมิชชั่น ${pct}% + VAT)`, net, b.peak_bank_sub, p.methodName)
       else warnings.push(`${b.name_en}: ไม่มีบัญชีธนาคาร — POS Alipay ${net.toFixed(2)} ไม่ถูกใส่ในไฟล์`)
       continue
     }

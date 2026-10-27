@@ -109,13 +109,13 @@ describe('Alipay fee (Point 2026-10-27: 1.6% deducted from VAT-inclusive gross)'
   const gaysorn: Branch = { code: 'gaysorn', name_en: 'Gaysorn', name_th: null, grab_store_id: 'sa', peak_bank_sub: 'BSV002', bank_last4: null, is_active: true, peak_customer: 'C00065', peak_class: '00002', tungngern_peak_sub: null, pos_location_id: 'gaysorn', ewallet: 'EWL002', grab_contact: 'C00073' }
   const aliRow = { business_date: '2026-10-27', location_id: 'gaysorn', channel: 'dine_in', method_name: 'Alipay', method_code: 'alipay', method_group: 'qr', bills: 3, amount_thb: 1000 }
 
-  it('books the Alipay receipt at net with a labeled description', () => {
+  it('books the Alipay receipt at net: commission 1.6% + VAT 7% on the commission', () => {
     const { posLines } = buildPosLines([aliRow], loc)
     const { lines, warnings } = buildPeakReceiptLines('2026-10-27', [gaysorn], [], [], posLines)
     expect(warnings).toEqual([])
     expect(lines).toHaveLength(1)
-    expect(lines[0].amount).toBeCloseTo(984, 2)             // 1000 × (1 − 0.016)
-    expect(lines[0].description).toBe('POS Alipay (หักค่าธรรมเนียม 1.6%)')
+    expect(lines[0].amount).toBeCloseTo(982.88, 2)          // 1000 − (16 + 1.12)
+    expect(lines[0].description).toBe('POS Alipay (หักค่าคอมมิชชั่น 1.6% + VAT)')
     expect(lines[0].paidBy).toBe('BSV002')
   })
 
