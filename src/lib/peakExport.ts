@@ -106,9 +106,11 @@ export type PeakConfig = {
   priceType: number        // I (1 แยกภาษี, 2 รวมภาษี, 3 ไม่มีภาษี)
   taxInvoice: number       // H (1 ออก, 2 ไม่ออก)
   qty: number              // M จำนวน — คงที่
+  alipayFeeRate: number    // Alipay หัก % จากยอดรวม VAT เอง → ลงไฟล์รายรับที่ยอดสุทธิ (Point 2026-10-27)
 }
 export const DEFAULT_PEAK_CONFIG: PeakConfig = {
   revenueAccount: '410101', vatRate: 0.07, priceType: 2, taxInvoice: 1, qty: 1,
+  alipayFeeRate: 0.016,
 }
 
 export function toDocDate(isoDate: string): number {
@@ -153,6 +155,15 @@ export function buildPeakReceiptLines(
       continue
     }
     if (Math.abs(p.amount) <= 0.005) continue
+    // Alipay deducts its fee from the VAT-inclusive gross itself → book the
+    // receipt at NET so it matches the bank arrival (Point 2026-10-27)
+    if (p.methodCode === 'alipay' && config.alipayFeeRate > 0) {
+      const net = Math.round(p.amount * (1 - config.alipayFeeRate) * 100) / 100
+      const pct = (config.alipayFeeRate * 100).toFixed(1).replace(/\.0$/, '')
+      if (b.peak_bank_sub) push(b, `POS ${p.methodName} (หักค่าธรรมเนียม ${pct}%)`, net, b.peak_bank_sub, p.methodName)
+      else warnings.push(`${b.name_en}: ไม่มีบัญชีธนาคาร — POS Alipay ${net.toFixed(2)} ไม่ถูกใส่ในไฟล์`)
+      continue
+    }
     if (p.toWallet) {
       if (b.tungngern_peak_sub) push(b, `POS ${p.methodName}`, p.amount, b.tungngern_peak_sub, p.methodName)
       else warnings.push(`${b.name_en}: ไม่มีบัญชีถุงเงิน — POS ${p.methodName} ${p.amount.toFixed(2)} ไม่ถูกใส่ในไฟล์`)

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import * as XLSX from 'xlsx'
-import { buildPeakReceiptLines, buildPosLines, peakReceiptWorkbook, toDocDate } from '../src/lib/peakExport'
+import { buildPeakReceiptLines, buildPosLines, peakReceiptWorkbook, toDocDate, DEFAULT_PEAK_CONFIG } from '../src/lib/peakExport'
 import type { Branch } from '../src/lib/supabase'
 
 const branches: Branch[] = [
@@ -104,10 +104,36 @@ describe('buildPosLines (Point rules 2026-08-15, real gaysorn 13/08 shape)', () 
   })
 })
 
+describe('Alipay fee (Point 2026-10-27: 1.6% deducted from VAT-inclusive gross)', () => {
+  const loc = new Map([['gaysorn', 'gaysorn']])
+  const gaysorn: Branch = { code: 'gaysorn', name_en: 'Gaysorn', name_th: null, grab_store_id: 'sa', peak_bank_sub: 'BSV002', bank_last4: null, is_active: true, peak_customer: 'C00065', peak_class: '00002', tungngern_peak_sub: null, pos_location_id: 'gaysorn', ewallet: 'EWL002', grab_contact: 'C00073' }
+  const aliRow = { business_date: '2026-10-27', location_id: 'gaysorn', channel: 'dine_in', method_name: 'Alipay', method_code: 'alipay', method_group: 'qr', bills: 3, amount_thb: 1000 }
+
+  it('books the Alipay receipt at net with a labeled description', () => {
+    const { posLines } = buildPosLines([aliRow], loc)
+    const { lines, warnings } = buildPeakReceiptLines('2026-10-27', [gaysorn], [], [], posLines)
+    expect(warnings).toEqual([])
+    expect(lines).toHaveLength(1)
+    expect(lines[0].amount).toBeCloseTo(984, 2)             // 1000 × (1 − 0.016)
+    expect(lines[0].description).toBe('POS Alipay (หักค่าธรรมเนียม 1.6%)')
+    expect(lines[0].paidBy).toBe('BSV002')
+  })
+
+  it('rate 0 books gross (and WeChat is untouched either way)', () => {
+    const wechat = { ...aliRow, method_name: 'Wechat', method_code: 'wechat' }
+    const { posLines } = buildPosLines([aliRow, wechat], loc)
+    const zero = { ...DEFAULT_PEAK_CONFIG, alipayFeeRate: 0 }
+    const { lines } = buildPeakReceiptLines('2026-10-27', [gaysorn], [], [], posLines, zero)
+    expect(lines.find(l => l.note === 'Alipay')!.amount).toBeCloseTo(1000, 2)
+    const def = buildPeakReceiptLines('2026-10-27', [gaysorn], [], [], posLines)
+    expect(def.lines.find(l => l.note === 'Wechat')!.amount).toBeCloseTo(1000, 2) // wechat not deducted
+  })
+})
+
 describe('PeakConfig', () => {
   it('workbook uses configured H/I/P/K values', () => {
     const gaysorn: Branch = { code: 'gaysorn', name_en: 'Gaysorn', name_th: null, grab_store_id: 'sa', peak_bank_sub: 'BSV002', bank_last4: null, is_active: true, peak_customer: 'C00065', peak_class: '00002', tungngern_peak_sub: null, pos_location_id: 'gaysorn', ewallet: 'EWL002', grab_contact: 'C00073' }
-    const cfg = { revenueAccount: '410199', vatRate: 0, priceType: 3, taxInvoice: 2, qty: 1 }
+    const cfg = { revenueAccount: '410199', vatRate: 0, priceType: 3, taxInvoice: 2, qty: 1, alipayFeeRate: 0.016 }
     const { lines } = buildPeakReceiptLines('2026-08-13', [gaysorn], [{ branchCode: 'gaysorn', grabBank: 100, grabWallet: 0 }], [], [], cfg)
     expect(lines[0].account).toBe('410199')
     const wb = peakReceiptWorkbook(lines, cfg)
