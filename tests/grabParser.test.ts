@@ -83,6 +83,37 @@ function makeWb(): XLSX.WorkBook {
   return wb
 }
 
+describe('pre-orders (สั่งล่วงหน้า, GF-xxxF) — created the day before, fulfilled on report day', () => {
+  it('re-dates a cross-day pre-order to Updated On; same-day pre-order untouched', () => {
+    const wb = makeWb()
+    const preorder = txnRow({
+      'หมวดหมู่': 'ชำระเงิน', 'สถานะ': 'โอนแล้ว', 'Transaction ID': 'txn-pre-1',
+      'รหัสคำสั่งซื้อสั้น': 'GF-851F', 'ประเภทคำสั่งซื้อ': 'Auto-Paid', 'วิธีการชำระเงิน': 'ไม่ใช้เงินสด',
+      'วันที่สร้าง': '10 Aug 2026 3:55 PM', 'Updated On': '11 Aug 2026 12:05 PM',
+      'รหัสการทำรายการ': 'PAYOUT1', 'วันที่โอน': '12 Aug 2026 4:44 AM',
+      'ยอด': 327, 'ยอดขายสุทธิ': 327, 'ค่าคอมมิชชันคำสั่งซื้อ': -49.05, 'ทั้งหมด': 277.95,
+    })
+    const samedayPre = txnRow({
+      'หมวดหมู่': 'ชำระเงิน', 'สถานะ': 'โอนแล้ว', 'Transaction ID': 'txn-pre-2',
+      'รหัสคำสั่งซื้อสั้น': 'GF-194F', 'ประเภทคำสั่งซื้อ': 'Auto-Paid', 'วิธีการชำระเงิน': 'ไม่ใช้เงินสด',
+      'วันที่สร้าง': '11 Aug 2026 10:29 AM', 'Updated On': '11 Aug 2026 12:06 PM',
+      'รหัสการทำรายการ': 'PAYOUT1', 'วันที่โอน': '12 Aug 2026 4:44 AM',
+      'ยอด': 139, 'ยอดขายสุทธิ': 139, 'ค่าคอมมิชชันคำสั่งซื้อ': -20.85, 'ทั้งหมด': 118.15,
+    })
+    const ws = wb.Sheets['รายการชำระเงิน']
+    XLSX.utils.sheet_add_aoa(ws, [preorder, samedayPre], { origin: -1 })
+    const p = parseGrabWorkbook(wb)
+    const pre = p.rows.find(r => r.orderCode === 'GF-851F')!
+    expect(pre.businessDate).toBe('2026-08-11')               // fulfillment day, not created day
+    expect(pre.grabCreatedAt).toBe('2026-08-10T15:55:00+07:00') // original timestamp preserved
+    const same = p.rows.find(r => r.orderCode === 'GF-194F')!
+    expect(same.businessDate).toBe('2026-08-11')
+    // note, not the scary out-of-period warning
+    expect(p.warnings.some(w => w.includes('สั่งล่วงหน้า') && w.includes('GF-851F'))).toBe(true)
+    expect(p.warnings.some(w => w.includes('นอกช่วงรายงาน'))).toBe(false)
+  })
+})
+
 describe('parseGrabDate', () => {
   it('parses grab datetime strings', () => {
     expect(parseGrabDate('11 Aug 2026 1:02 PM')).toBe('2026-08-11T13:02:00+07:00')

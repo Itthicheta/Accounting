@@ -88,6 +88,7 @@ function parseDeclaredPeriod(wb: XLSX.WorkBook): [string, string] | null {
 const H = {
   storeName2: 'ชื่อร้าน', // appears twice; we take the 3rd column (index 2) via position
   storeId: 'รหัสร้านค้า',
+  updatedAt: 'Updated On',
   createdAt: 'วันที่สร้าง',
   category: 'หมวดหมู่',
   subitem: 'รายการย่อย',
@@ -203,6 +204,10 @@ export function parseGrabWorkbook(wb: XLSX.WorkBook): GrabParse {
 
   const g = (r: unknown[], name: string): unknown => r[col[name]]
 
+  // declared period parsed up-front: the pre-order date rule below needs it
+  const declaredEarly = parseDeclaredPeriod(wb)
+  const preOrderAdjusted: string[] = []
+
   for (let i = 1; i < aoa.length; i++) {
     const r = aoa[i]
     if (!r || r.length === 0 || r[0] == null || r[0] === '') continue
@@ -257,6 +262,20 @@ export function parseGrabWorkbook(wb: XLSX.WorkBook): GrabParse {
       cancelledBy: str(g(r, H.cancelledBy)),
       refundReason: str(g(r, H.refundReason)),
     }
+    // สั่งล่วงหน้า (pre-orders, GF-xxxF): วันที่สร้าง is the ORDER date (can be the day
+    // before), but Grab files the row — and settles its money — under the fulfillment
+    // day = "Updated On". When created falls outside the declared period and Updated On
+    // falls inside, the fulfillment day is the business date (Point, 2026-10-27).
+    if (declaredEarly) {
+      const [ds, de] = declaredEarly
+      if (row.businessDate && (row.businessDate < ds || row.businessDate > de)) {
+        const upd = isoToDate(parseGrabDate(g(r, H.updatedAt)))
+        if (upd && upd >= ds && upd <= de) {
+          preOrderAdjusted.push(`${row.orderCode || row.txnId} (${row.businessDate} → ${upd})`)
+          row.businessDate = upd
+        }
+      }
+    }
     if (row.category === 'ยกเลิก') { rows.push(row); continue }
     // identity check on payment rows: amount + discounts + fees + commissions = total
     if (row.category === 'ชำระเงิน') {
@@ -298,13 +317,16 @@ export function parseGrabWorkbook(wb: XLSX.WorkBook): GrabParse {
   const periodStart = dates[0] ?? ''
   const periodEnd = dates[dates.length - 1] ?? ''
 
-  const declared = parseDeclaredPeriod(wb)
+  const declared = declaredEarly
   let declaredStart = periodStart
   let declaredEnd = periodEnd
   if (declared) {
     ;[declaredStart, declaredEnd] = declared
   } else {
     warnings.push(`ไม่พบช่วงวันที่ในชีต "${SUMMARY_SHEET}" — ใช้ช่วงวันที่จากรายการแทน (${periodStart} ถึง ${periodEnd})`)
+  }
+  if (preOrderAdjusted.length) {
+    warnings.push(`ออเดอร์สั่งล่วงหน้า ${preOrderAdjusted.length} รายการ ถูกปรับวันที่เข้าวันตามรายงาน (ปกติ): ${preOrderAdjusted.join(', ')}`)
   }
   const outside = rows.filter(r => r.businessDate && (r.businessDate < declaredStart || r.businessDate > declaredEnd))
   if (outside.length) {
